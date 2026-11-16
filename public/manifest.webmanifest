@@ -1,0 +1,16 @@
+{
+  "name": "Sayı Bulmaca",
+  "short_name": "Sayı Bulmaca",
+  "description": "İki kişilik sayı bulmaca oyunu",
+  "lang": "tr",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f5ee",
+  "theme_color": "#1f4fb5",
+  "icons": [
+    { "src": "ikon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "ikon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "ikon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

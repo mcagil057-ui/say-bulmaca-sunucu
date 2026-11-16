@@ -1,0 +1,5 @@
+node_modules/
+android/cikti/
+*.keystore
+*.apk
+__pycache__/

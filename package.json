@@ -1,0 +1,14 @@
+{
+  "name": "sayi-bulmaca",
+  "version": "1.0.0",
+  "description": "İki kişilik sayı bulmaca oyunu: oda kur, arkadaşınla ya da botla oyna.",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
