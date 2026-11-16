@@ -1,5 +1,8 @@
 # Sayı Bulmaca
 
+**Oyna:** https://sayi-bulmaca-u4e8.onrender.com — Android uygulaması:
+sitenin giriş ekranındaki "Android uygulamasını indir" bağlantısı.
+
 İki kişilik sayı bulmaca. Herkes rakamları farklı bir sayı tutar, sırayla
 birbirinin sayısını sorar. Soruya cevabı **oyuncu kendisi yazar**
 (`+1` = yeri doğru, `−1` = var ama yeri yanlış, `0` = hiçbiri yok). Yanlış

@@ -357,7 +357,8 @@ function girisCiz() {
       <button class="dugme" data-e="botAc">Botla oyna</button>
       <button class="dugme ince" data-e="kurallar">Nasıl oynanır?</button>
     </div>
-    ${YEREL_ACILIS && S.agAdres ? `<p class="not kucuk">Aynı Wi-Fi'daki telefonlar şu adresi açsın:<br><b class="ag-adres">${esc(S.agAdres)}</b></p>` : ''}`;
+    ${YEREL_ACILIS && S.agAdres ? `<p class="not kucuk">Aynı Wi-Fi'daki telefonlar şu adresi açsın:<br><b class="ag-adres">${esc(S.agAdres)}</b></p>` : ''}
+    ${/android/i.test(navigator.userAgent) && !window.SBAndroid ? '<a class="dugme ince" href="indir/SayiBulmaca.apk" download>Android uygulamasını indir (APK)</a>' : ''}`;
   }
   return `<section class="giris">
     ${logo()}
