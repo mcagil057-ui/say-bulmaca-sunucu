@@ -19,6 +19,7 @@
     yanlisHak: 3,    // bu kadar yanlış cevapta kaybedersin
     basSifir: false, // sayı 0 ile başlayabilir mi
     esitTur: true,   // başlayan bulursa rakibe son bir hak
+    otoCevap: true,  // cevabı uygulama verir (kapalıysa oyuncu elle yazar)
   };
   const SURELER = [0, 30, 45, 60, 90, 120];
   // Botların eski cevapları hatırlama olasılığı (test.js ile ayarlandı).
@@ -35,6 +36,7 @@
       yanlisHak: [1, 2, 3, 4, 5].includes(y) ? y : 3,
       basSifir: !!a.basSifir,
       esitTur: !!a.esitTur,
+      otoCevap: !!a.otoCevap,
     };
   }
 
@@ -170,6 +172,8 @@
       this.sonuc = null;
       this.olay = null;          // son önemli olay (bildirim için)
       this.olaySayac = 0;
+      // Her maçın kendi kimliği: telefondaki eleme tablosu maça bağlı kalsın
+      this.id = Math.random().toString(36).slice(2, 10);
     }
 
     _sureBaslat() {
@@ -200,9 +204,10 @@
       if (h) return h;
       const rakip = this.oyuncular[1 - i];
       const gercek = puanla(rakip.gizli, s);
-      // Tam isabette ya da son şans sorusunda cevap beklemeye gerek yok:
-      // sonuç zaten belli.
-      if (gercek.arti === this.ayar.basamak || this.sonSans) {
+      // Otomatik cevapta, tam isabette ya da son şans sorusunda cevap
+      // beklemeye gerek yok: sonucu uygulama verir.
+      if (this.ayar.otoCevap || gercek.arti === this.ayar.basamak || this.sonSans) {
+        this._olay('soru', { kim: i, tahmin: s, arti: gercek.arti, eksi: gercek.eksi });
         this._kaydet({ kim: i, tahmin: s, arti: gercek.arti, eksi: gercek.eksi, verilen: null });
         return null;
       }
@@ -300,6 +305,7 @@
       const bitti = this.faz === 'bitti';
       const kim = k => (k === i ? 'ben' : 'rakip');
       return {
+        id: this.id,
         faz: this.faz,
         ayar: this.ayar,
         ben: { ad: ben.ad, gizli: ben.gizli, hazir: !!ben.gizli, yanlis: ben.yanlis },

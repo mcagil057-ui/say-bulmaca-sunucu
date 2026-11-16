@@ -17,9 +17,9 @@ esit(!!O.sayiHatasi('012', a3), true, 'başta sıfır');
 esit(O.sayiHatasi('012', O.ayarDuzelt({ basSifir: true })), null, 'başta sıfır serbest');
 esit(O.tumSayilar(a3).length, 648, '3 basamak sayı adedi');
 
-// Maç akışı: yanlış cevap hak düşürür, doğrusu kayda geçer
+// Elle cevap modu: yanlış cevap hak düşürür, doğrusu kayda geçer
 let saat = 0;
-const m = new O.Mac({ turSure: 60 }, ['A', 'B'], 0, () => saat);
+const m = new O.Mac({ turSure: 60, otoCevap: false }, ['A', 'B'], 0, () => saat);
 m.gizliBelirle(0, '302'); m.gizliBelirle(1, '426');
 esit(m.faz, 'oyun', 'oyun başladı');
 esit(m.tahminEt(1, '576'), 'Sıra sende değil', 'sıra kontrolü');
@@ -43,13 +43,25 @@ m.tahminEt(1, '302');
 esit(m.sonuc, { kazanan: -1, neden: 'berabere' }, 'berabere');
 
 // 3 yanlışta kaybetme
-const m2 = new O.Mac({}, ['A', 'B'], 0);
+const m2 = new O.Mac({ otoCevap: false }, ['A', 'B'], 0);
 m2.gizliBelirle(0, '123'); m2.gizliBelirle(1, '456');
 for (let k = 0; k < 3; k++) {
   m2.tahminEt(0, '789'); m2.cevapVer(1, 1, 0);
   if (m2.faz !== 'bitti') { m2.tahminEt(1, '789'); m2.cevapVer(0, 0, 0); }
 }
 esit(m2.sonuc, { kazanan: 0, neden: 'yanlis' }, '3 yanlışta kaybetti');
+
+// Otomatik cevap (varsayılan): soru sorulunca cevap hemen yazılır, sıra geçer
+esit(O.ayarDuzelt({}).otoCevap, true, 'varsayılan otomatik cevap');
+const m3 = new O.Mac({}, ['A', 'B'], 0);
+m3.gizliBelirle(0, '302'); m3.gizliBelirle(1, '426');
+m3.tahminEt(0, '576');
+esit([m3.kayitlar[0].arti, m3.kayitlar[0].eksi, m3.sira, m3.asama], [1, 0, 1, 'tahmin'], 'otomatik cevap +1');
+esit(m3.cevapVer(1, 1, 0), 'Cevap beklenmiyor', 'otomatikte elle cevap yok');
+m3.tahminEt(1, '203');
+esit([m3.kayitlar[1].arti, m3.kayitlar[1].eksi], [1, 2], 'otomatik cevap +1 −2');
+esit(m3.gorunum(0).gelenSorular.length, 1, 'gelen soru görünüyor');
+esit(new O.Mac({}, ['A', 'B'], 0).id !== m3.id, true, 'her maçın kimliği ayrı');
 
 // Botlar: kaç soruda buluyorlar?
 function botOlc(seviye, ayar, n) {

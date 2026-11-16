@@ -312,3 +312,46 @@ input:focus { border-color: var(--murekkep); }
   .oyun { gap: 7px; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---------- sohbet ---------- */
+.sohbet-dugme { position: relative; font-size: 19px; }
+.rozet-sayi {
+  position: absolute; top: -6px; right: -6px; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 999px;
+  background: var(--kirmizi); color: #fff; font-size: 11.5px; font-weight: 800; line-height: 19px; font-family: var(--govde);
+}
+.oyun-ust.sohbetli { grid-template-columns: 40px 1fr auto 1fr 40px; }
+.perde.alt { place-items: end center; padding: 0; }
+.modal.sohbet {
+  max-width: 520px; height: min(78dvh, 640px); border-radius: 20px 20px 0 0; gap: 8px;
+  padding: 14px 14px calc(env(safe-area-inset-bottom) + 12px); overflow: hidden;
+}
+.sohbet-bas { display: flex; align-items: center; justify-content: space-between; }
+.sohbet-bas h2 { font-size: 28px; text-align: left; }
+.sohbet-liste {
+  list-style: none; margin: 0; padding: 4px 2px; flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.sohbet-liste li { display: flex; flex-direction: column; gap: 1px; max-width: 82%; align-self: flex-start; align-items: flex-start; }
+.sohbet-liste li.ben { align-self: flex-end; align-items: flex-end; }
+.sohbet-liste li.bos { max-width: 100%; color: var(--soluk); font-size: 14px; align-self: center; text-align: center; }
+.sohbet-liste small { font-size: 11.5px; padding: 0 6px; }
+.balon {
+  padding: 7px 12px; border-radius: 16px 16px 16px 4px; background: var(--murekkep-acik); color: var(--yazi);
+  font-weight: 700; font-size: 15.5px; overflow-wrap: anywhere; line-height: 1.35;
+}
+.ben .balon { border-radius: 16px 16px 4px 16px; background: var(--murekkep); color: #fff; }
+@media (prefers-color-scheme: dark) { .ben .balon { color: #0d1a2e; } }
+.balon.emoji, .ben .balon.emoji { background: transparent; font-size: 34px; padding: 0 4px; line-height: 1.15; }
+.hazir { display: flex; flex-wrap: wrap; gap: 6px; }
+.hazir::-webkit-scrollbar { display: none; }
+.hazir .sec { flex: none; white-space: nowrap; padding: 7px 11px; font-size: 14px; }
+.emojiler { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px; }
+.emojiler::-webkit-scrollbar { display: none; }
+.emojiler button { flex: none; border: 0; background: transparent; font-size: 25px; padding: 3px 4px; cursor: pointer; border-radius: 8px; line-height: 1.2; }
+.emojiler button:active { background: var(--murekkep-acik); }
+.sohbet-yaz { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.sohbet-yaz input {
+  min-width: 0; border: 1.5px solid var(--kenar); border-radius: 12px; padding: 10px 12px; background: var(--kagit); color: var(--yazi); font-weight: 700;
+}
+.sohbet-yaz input:focus { outline: none; border-color: var(--murekkep); }
+.sohbet-yaz .dugme { padding-left: 16px; padding-right: 16px; }

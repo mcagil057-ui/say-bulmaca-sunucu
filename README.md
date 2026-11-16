@@ -4,13 +4,17 @@
 sitenin giriş ekranındaki "Android uygulamasını indir" bağlantısı.
 
 İki kişilik sayı bulmaca. Herkes rakamları farklı bir sayı tutar, sırayla
-birbirinin sayısını sorar. Soruya cevabı **oyuncu kendisi yazar**
-(`+1` = yeri doğru, `−1` = var ama yeri yanlış, `0` = hiçbiri yok). Yanlış
-yazarsan uygulama yakalar, hakkın düşer ve rakibe doğru cevabı uygulama
-verir. Hakların bitince kaybedersin.
+birbirinin sayısını sorar. Cevap: `+1` = yeri doğru, `−1` = var ama yeri
+yanlış, `0` = hiçbiri yok. Cevabı varsayılan olarak **uygulama verir**;
+"Cevaplar: Elle yazılır" seçilirse oyuncu kendisi yazar, yanlış yazarsa
+uygulama yakalar, hakkı düşer, rakibe doğru cevabı uygulama verir.
 
 - **Oda kur / katıl**: 4 harfli kodla. Ayarları odayı kuran seçer:
-  basamak (3–5), tur süresi, yanlış hakkı, 0 ile başlama, eşit tur.
+  cevaplar (otomatik/elle), basamak (3–5), tur süresi, yanlış hakkı (elle
+  modda), 0 ile başlama, eşit tur.
+- **Sohbet** (💬): hazır mesajlar, emojiler ve serbest yazı.
+- **Eleme tablosu** (0–9): yalnızca kendi sorduğun sayıları boyar, her
+  yeni maçta temizlenir.
 - **Botla oyna**: kolay / orta / zor. Telefonda çalışır, internet gerekmez.
 - Android (APK), iPhone (Safari'den aç → Paylaş → Ana Ekrana Ekle) ve
   bilgisayar aynı odada birlikte oynar.

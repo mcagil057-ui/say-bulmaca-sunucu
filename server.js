@@ -6,7 +6,7 @@
  *   GET  /api/bekle?kod=ABCD&id=..&surum=N   yeni durumu bekle (uzun bekleme)
  *   POST /api/oda    {id, ad}        yeni oda -> {kod}
  *   POST /api/katil  {kod, id, ad}   odaya gir
- *   POST /api/eylem  {kod, id, tur, ...}
+ *   POST /api/eylem  {kod, id, tur, ...}   (tur: mesaj = oyun içi sohbet)
  *
  * Gizli sayılar YALNIZCA sunucuda durur; her oyuncuya kendi görmesi gereken
  * durum gönderilir. Rakibin sayısı oyun bitene kadar telefona hiç gelmez.
@@ -65,6 +65,8 @@ const temizId = a => String(a || '').slice(0, 64);
  */
 const BEKLEME = 25000;
 const KOPMA = 12000;   // bu kadar süre sormayan oyuncu "bağlantı koptu" sayılır
+const SOHBET_SINIR = 60;
+const MESAJ_UZUNLUK = 120;
 
 function oyuncuYap(id, ad) { return { id, ad, bekleyenler: new Set(), sonGorulme: Date.now() }; }
 function bagliMi(o) { return o.bekleyenler.size > 0 || Date.now() - o.sonGorulme < KOPMA; }
@@ -76,6 +78,8 @@ function odaKur(id, ad) {
     oyuncular: [oyuncuYap(id, ad)],
     mac: null,
     macSayisi: 0,
+    sohbet: [],          // {no, id, ad, metin} — son SOHBET_SINIR mesaj
+    mesajNo: 0,
     surum: 0,
     zamanlayici: null,
     sonHareket: Date.now(),
@@ -96,6 +100,7 @@ function durum(oda, i) {
       oyuncular: oda.oyuncular.map((o, k) => ({ ad: o.ad, bagli: bagliMi(o), ben: k === i })),
       faz: oda.mac ? 'mac' : 'lobi',
     },
+    sohbet: oda.sohbet.map(x => ({ no: x.no, ad: x.ad, metin: x.metin, ben: x.id === oda.oyuncular[i].id })),
     mac: oda.mac ? oda.mac.gorunum(i) : null,
     simdi: Date.now(),
   };
@@ -172,6 +177,16 @@ function eylem(oda, i, v) {
     case 'tahmin': return m ? m.tahminEt(i, String(v.sayi)) : 'Maç yok';
     case 'cevap': return m ? m.cevapVer(i, v.arti, v.eksi) : 'Maç yok';
     case 'teslim': return m ? m.teslim(i) : 'Maç yok';
+    case 'mesaj': {
+      const o = oda.oyuncular[i];
+      const metin = String(v.metin || '').replace(/\s+/g, ' ').trim().slice(0, MESAJ_UZUNLUK);
+      if (!metin) return 'Mesaj boş';
+      if (Date.now() - (o.sonMesaj || 0) < 600) return 'Biraz yavaş :)';
+      o.sonMesaj = Date.now();
+      oda.sohbet.push({ no: ++oda.mesajNo, id: o.id, ad: o.ad, metin });
+      if (oda.sohbet.length > SOHBET_SINIR) oda.sohbet.shift();
+      return null;
+    }
     case 'ayril':
       if (m && m.faz !== 'bitti') m.teslim(i);
       for (const b of oda.oyuncular[i].bekleyenler) { clearTimeout(b.saat); json(b.yanit, 404, { hata: 'Odadan çıktın' }); }
