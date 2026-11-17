@@ -33,7 +33,15 @@ function androidNo() { try { return window.SBAndroid && window.SBAndroid.cihazNo
 function cihazBilgisi() { return { tel: ID, iz: cihazIzi(), cihazNo: androidNo() }; }
 
 function oturum() { return depo.al('sb_oturum', ''); }
-function basliklar(ek) { return Object.assign({ 'X-Oturum': oturum() }, ek || {}); }
+/** Her isteğe: oturum (mail girişi açıkken) + telefon kimliği ve ad (mail girişi kapalıyken misafir hesap). */
+function basliklar(ek) {
+  return Object.assign({ 'X-Oturum': oturum(), 'X-Cihaz': ID, 'X-Ad': encodeURIComponent(adim()) }, ek || {});
+}
+/** Mail ile giriş kapalıyken: misafir (yalnızca ad, giriş yok). */
+function misafirOl() {
+  S.hesap = { ad: (depo.al('sb_ad', '') || '').trim(), misafir: true };
+  S.giris = null;
+}
 
 /** Oturum geçersizse (çıkış yapılmış, başka yerden silinmiş): giriş ekranına dön. */
 function girisGerekli() {
@@ -51,6 +59,13 @@ function hesapKoy(h) {
 
 /** Açılışta: kayıtlı oturum geçerli mi? */
 async function hesapDenetle() {
+  // Sunucuda mail ile giriş açık mı? (Render'daki MAIL_GIRIS ayarı)
+  try {
+    const m = await fetch(API + '/api/mod', { cache: 'no-store' }).then(x => x.json());
+    S.mailGiris = !!m.mailGiris;
+    depo.koy('sb_mailgiris', S.mailGiris ? '1' : '0');
+  } catch (e) { S.mailGiris = depo.al('sb_mailgiris', '0') === '1'; }
+  if (!S.mailGiris) { misafirOl(); return true; }
   if (!oturum()) { S.giris = { adim: 'mail', mail: '', kod: '', ad: '' }; return false; }
   try {
     const r = await fetch(API + '/api/ben', { headers: basliklar(), cache: 'no-store' });
@@ -103,6 +118,13 @@ function girisEkrani() {
 
 function hesapKarti() {
   const h = S.hesap;
+  if (h.misafir) {
+    // Mail ile giriş kapalı: eskisi gibi yalnızca ad
+    return `<div class="kart ad-kart">
+      <label for="ad">Adın</label>
+      <input id="ad" maxlength="16" autocomplete="nickname" placeholder="Adını yaz" value="${esc(h.ad)}">
+    </div>`;
+  }
   return `<div class="kart hesap-kart">
     <div><b class="hesap-ad">👤 ${esc(h.ad)}</b><small>${esc(h.mail)}${S.cevrimdisi ? ' · çevrimdışı' : ''}</small></div>
     <button class="sec" data-e="adAc">Adı değiştir</button>
@@ -184,6 +206,15 @@ const GIRIS_EYLEM = {
     girisGerekli();
   },
 };
+
+// Misafirde ad kutusu
+document.addEventListener('input', e => {
+  if (e.target.id === 'ad' && S.hesap && S.hesap.misafir) {
+    const ad = e.target.value.trim().slice(0, 16);
+    depo.koy('sb_ad', ad);
+    S.hesap.ad = ad;
+  }
+});
 
 // Yazılanlar ekran yeniden çizilince kaybolmasın
 document.addEventListener('input', e => {

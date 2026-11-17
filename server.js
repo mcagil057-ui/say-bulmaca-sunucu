@@ -31,6 +31,13 @@ const Gunluk = require('./gunluk-sunucu.js');
 const { depoAc } = require('./depo.js');
 const { hesapModulu, yereldenMi, postaDurumu } = require('./hesap.js');
 let Hesap, GunlukOyun, DEPO_TURU; // depo açılınca kurulur (aşağıda)
+/*
+ * Mail ile giriş açık mı? Render'da MAIL_GIRIS=1 ise açık (hesap + kod +
+ * 14 gün cihaz kilidi + ad 3 günde bir). Değilse her telefon kendi
+ * kimliğiyle misafir hesap kullanır; kod, hesaplar ve ayarlar silinmez.
+ * 17.11.2026: kullanıcı isteğiyle şimdilik KAPALI.
+ */
+const MAIL_GIRIS = process.env.MAIL_GIRIS === '1';
 
 /**
  * Aynı Wi-Fi'daki telefonların açacağı adresler (ör. 192.168.1.20).
@@ -295,11 +302,14 @@ const sunucu = http.createServer(async (istek, yanit) => {
     // Başka sitelerden gelen istekler (CORS) kabul edilmez: uygulama ve site aynı adresten açılır
     if (istek.method === 'OPTIONS') { yanit.writeHead(405); return yanit.end(); }
     if (yol === '/api/saglik') {
-      return json(yanit, 200, { tamam: true, acilis: new Date(ACILIS).toISOString(), hazir: DEPO_TURU === 'postgres' && !!process.env.BREVO_API_KEY && !!process.env.MAIL_GONDEREN, mail: postaDurumu() });
+      const mailHazir = !!process.env.BREVO_API_KEY && !!process.env.MAIL_GONDEREN;
+      return json(yanit, 200, { tamam: true, acilis: new Date(ACILIS).toISOString(), mailGiris: MAIL_GIRIS, hazir: DEPO_TURU === 'postgres' && (!MAIL_GIRIS || mailHazir), mail: postaDurumu() });
     }
+    if (yol === '/api/mod') return json(yanit, 200, { mailGiris: MAIL_GIRIS });
 
     // ---- giriş (oturumsuz)
     if (istek.method === 'POST' && (yol === '/api/giris/kod' || yol === '/api/giris/dogrula')) {
+      if (!MAIL_GIRIS) return json(yanit, 404, { hata: 'Mail ile giriş şu an kapalı' });
       const v = await govdeOku(istek);
       try {
         return json(yanit, 200, yol === '/api/giris/kod' ? await Hesap.kodIste(istek, v) : await Hesap.dogrula(istek, v));
@@ -320,8 +330,11 @@ const sunucu = http.createServer(async (istek, yanit) => {
       if (istek.method === 'GET') return dosyaGonder(yanit, decodeURIComponent(yol));
       yanit.writeHead(405); return yanit.end();
     }
-    const hesap = await Hesap.oturumdan(istek);
-    if (!hesap) return json(yanit, 401, { hata: 'Giriş yapman gerekiyor', girisGerekli: true });
+    const hesap = MAIL_GIRIS ? await Hesap.oturumdan(istek) : await Hesap.misafir(istek);
+    if (!hesap) {
+      return MAIL_GIRIS ? json(yanit, 401, { hata: 'Giriş yapman gerekiyor', girisGerekli: true })
+        : json(yanit, 400, { hata: 'Cihaz bilgisi eksik, sayfayı yenile' });
+    }
     const id = 'h' + hesap.id;   // odalarda oyuncu kimliği = hesap
     const ad = hesap.ad;
 
@@ -367,6 +380,7 @@ const sunucu = http.createServer(async (istek, yanit) => {
       try { v = await govdeOku(istek); } catch (e) { return json(yanit, e.kod || 400, { hata: e.message }); }
 
       if (yol === '/api/cikis') { await Hesap.cikis(istek); return json(yanit, 200, { tamam: true }); }
+      if (yol === '/api/ad' && !MAIL_GIRIS) return json(yanit, 404, { hata: 'Yok' }); // misafirde ad X-Ad ile serbest
       if (yol === '/api/ad') {
         try {
           const h = await Hesap.adDegistir(hesap, v.ad);

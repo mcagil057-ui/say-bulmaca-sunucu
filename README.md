@@ -31,7 +31,9 @@ uygulama yakalar, hakkı düşer, rakibe doğru cevabı uygulama verir.
 
 ## Hesaplar ve giriş
 
-Oyunun tamamı mail ile girişle oynanır: maile 6 haneli kod gelir (Brevo),
+**Şu an KAPALI** (17.11.2026): mail ile giriş, Render'da `MAIL_GIRIS=1` ayarıyla açılır. Kapalıyken her telefon kendi kimliğiyle otomatik "misafir" hesap kullanır (ana menüde yalnızca ad), kayıtlar yine Neon'da kalıcıdır; mevcut hesaplar ve ayarlar silinmez.
+
+Açıkken oyunun tamamı mail ile girişle oynanır: maile 6 haneli kod gelir (Brevo),
 yeni hesapta ad sorulur. Bir cihazda açılan hesaptan 14 gün başka hesaba
 geçilemez; ad 3 günde bir değişir. Günün bulmacası hesap başına günde bir.
 

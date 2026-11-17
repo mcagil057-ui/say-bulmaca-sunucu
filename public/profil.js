@@ -61,7 +61,7 @@ function profilCiz() {
   const l = Istat.liste();
   const g = Istat.gunluk();
   const ust = `<div class="ust-cubuk"><button class="geri-ok" data-e="geri" aria-label="Geri">‹</button><span>İstatistiklerim</span><span></span></div>`;
-  const hesap = S.hesap ? `<div class="kart"><label>Hesabım</label>
+  const hesap = S.hesap && !S.hesap.misafir ? `<div class="kart"><label>Hesabım</label>
     <div class="hesap-kart ic"><div><b class="hesap-ad">👤 ${esc(S.hesap.ad)}</b><small>${esc(S.hesap.mail)}</small></div><button class="sec" data-e="adAc">Adı değiştir</button></div>
     <button class="dugme ince tehlike" data-e="cikisYap">Çıkış yap</button></div>` : '';
   const gunler = Object.values(g);

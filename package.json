@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "test": "node test.js && node test-hesap.js"
+    "test": "node test.js && node test-hesap.js && node test-misafir.js"
   },
   "engines": {
     "node": ">=18"

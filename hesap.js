@@ -145,6 +145,8 @@ function sayac(pencere) {
 
 function hesapModulu(depo) {
   const oturumBellek = new Map(); // anahtar -> {hesap, zaman}
+  const misafirBellek = new Map(); // misafir anahtarı -> {hesap, zaman}
+  const misafirIp = sayac(SAAT);     // ağ başına yeni misafir kaydı (saatte 30)
   const ipKod = sayac(SAAT);         // ağ başına kod isteği
   const mailKodSaat = sayac(SAAT);   // adres başına kod (saatte 5)
   const mailKodDakika = sayac(60 * 1000);
@@ -155,6 +157,8 @@ function hesapModulu(depo) {
     const s = Date.now();
     [ipKod, mailKodSaat, mailKodDakika, mailHata, ipHata].forEach(x => x.temizle(s));
     for (const [k, b] of oturumBellek) if (s - b.zaman > 5 * 60 * 1000) oturumBellek.delete(k);
+    for (const [k, b] of misafirBellek) if (s - b.zaman > 5 * 60 * 1000) misafirBellek.delete(k);
+    misafirIp.temizle(s);
   }, 10 * 60 * 1000).unref();
 
   /** Bu cihaz son 14 günde başka bir hesaba bağlandıysa hata. */
@@ -253,9 +257,39 @@ function hesapModulu(depo) {
       return this.goster(hesap);
     },
 
+    /**
+     * Mail ile giriş KAPALIYKEN: telefonun kendi kimliğiyle (X-Cihaz) otomatik
+     * "misafir" hesap. Kayıtlar yine veritabanında kalıcıdır; ad serbestçe
+     * değişir (X-Ad). Mail girişi yeniden açılınca bu hesaplar dokunulmadan kalır.
+     */
+    async misafir(istek) {
+      const tel = String(istek.headers['x-cihaz'] || '');
+      if (!/^[0-9a-f]{16,64}$/.test(tel)) return null;
+      let ad = '';
+      try { ad = decodeURIComponent(String(istek.headers['x-ad'] || '')).trim(); } catch (e) { /* bozuk */ }
+      if (adHatasi(ad)) ad = 'Oyuncu';
+      const anahtar = 'misafir:' + ozet('misafir|' + tel).slice(0, 32);
+      const s = Date.now();
+      const b = misafirBellek.get(anahtar);
+      let h = b && s - b.zaman < 5 * 60 * 1000 ? b.hesap : await depo.hesapMail(anahtar);
+      if (!h) {
+        const ip = istemciIp(istek);
+        if (misafirIp.say(ip, s) >= 30) throw hata('Çok fazla yeni kayıt, biraz sonra dene', 429);
+        misafirIp.ekle(ip, s);
+        try { h = await depo.hesapOlustur(anahtar, ad, s); }
+        catch (e) { h = await depo.hesapMail(anahtar); if (!h) throw e; } // aynı anda iki istek
+      } else if (h.ad !== ad) {
+        await depo.adDegistir(h.id, ad, h.adDegisti);
+        h.ad = ad;
+      }
+      misafirBellek.set(anahtar, { hesap: h, zaman: s });
+      return h;
+    },
+
     /** Telefona gidecek hesap bilgisi. */
     goster(h) {
-      return { mail: h.mail, ad: h.ad, adDegisebilir: Math.max(0, h.adDegisti + AD_ARALIGI - Date.now()) };
+      const misafir = h.mail.startsWith('misafir:');
+      return { mail: misafir ? null : h.mail, ad: h.ad, misafir, adDegisebilir: misafir ? 0 : Math.max(0, h.adDegisti + AD_ARALIGI - Date.now()) };
     },
   };
 }

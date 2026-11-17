@@ -6,7 +6,7 @@ const path = require('path');
 const Oyun = require('./public/oyun.js');
 
 const PORT = 8095;
-const sunucu = spawn(process.execPath, [path.join(__dirname, 'server.js')], { env: Object.assign({}, process.env, { PORT: String(PORT), DATABASE_URL: '', BREVO_API_KEY: '', RENDER: '', YEREL_DENEME: '1' }) });
+const sunucu = spawn(process.execPath, [path.join(__dirname, 'server.js')], { env: Object.assign({}, process.env, { PORT: String(PORT), DATABASE_URL: '', BREVO_API_KEY: '', RENDER: '', YEREL_DENEME: '1', MAIL_GIRIS: '1' }) });
 let kayit = '';
 sunucu.stdout.on('data', d => { kayit += d; });
 sunucu.stderr.on('data', d => { kayit += d; });
