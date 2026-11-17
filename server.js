@@ -1,15 +1,21 @@
 /*
  * Sayı Bulmaca sunucusu — odaları tutar, iki oyuncuyu buluşturur.
  *
- * Hiçbir paket gerektirmez (yalnızca Node). Render'da `node server.js`.
+ * Render'da `node server.js`. Hesaplar Neon Postgres'te (DATABASE_URL),
+ * giriş kodu maili Brevo ile (BREVO_API_KEY, MAIL_GONDEREN). Bunlar yoksa
+ * (bilgisayarda deneme) hesaplar bellekte durur, kod sunucu penceresine yazılır.
  *
- *   GET  /api/bekle?kod=ABCD&id=..&surum=N   yeni durumu bekle (uzun bekleme)
- *   POST /api/oda    {id, ad}        yeni oda -> {kod}
- *   POST /api/katil  {kod, id, ad}   odaya gir
- *   POST /api/eylem  {kod, id, tur, ...}   (tur: mesaj = oyun içi sohbet)
- *   GET  /api/gunluk?id=..             günün bulmacası: gün, basamak, sıralama
- *   POST /api/gunluk/sor   {id, gun, tahmin}       -> {arti, eksi}
- *   POST /api/gunluk/bitti {id, ad, gun, tahminler} -> sıralamaya yazar
+ * Giriş (oturum gerekmez):
+ *   POST /api/giris/kod      {mail, tel, iz, cihazNo}          maile kod gönder
+ *   POST /api/giris/dogrula  {mail, kod, ad?, tel, iz, cihazNo} -> {oturum, hesap}
+ * Aşağıdakiler "X-Oturum" başlığı ister:
+ *   GET  /api/ben                      hesabım
+ *   POST /api/ad {ad}                  isim değiştir (3 günde bir)
+ *   POST /api/cikis
+ *   GET  /api/bekle?kod=ABCD&surum=N   odanın yeni durumunu bekle (uzun bekleme)
+ *   POST /api/oda | /api/katil {kod} | /api/eylem {kod, tur, ...}
+ *   GET  /api/gunluk                   günün bulmacası: ilerlemem + sıralama
+ *   POST /api/gunluk/sor {gun, tahmin}
  *
  * Gizli sayılar YALNIZCA sunucuda durur; her oyuncuya kendi görmesi gereken
  * durum gönderilir. Rakibin sayısı oyun bitene kadar telefona hiç gelmez.
@@ -22,6 +28,9 @@ const crypto = require('crypto');
 const os = require('os');
 const Oyun = require('./public/oyun.js');
 const Gunluk = require('./gunluk-sunucu.js');
+const { depoAc } = require('./depo.js');
+const { hesapModulu } = require('./hesap.js');
+let Hesap, GunlukOyun, DEPO_TURU; // depo açılınca kurulur (aşağıda)
 
 /**
  * Aynı Wi-Fi'daki telefonların açacağı adresler (ör. 192.168.1.20).
@@ -57,8 +66,6 @@ function kodUret() {
     if (!odalar.has(k)) return k;
   }
 }
-const temizAd = a => String(a || '').trim().slice(0, 16) || 'Oyuncu';
-const temizId = a => String(a || '').slice(0, 64);
 
 /*
  * Telefonlar durumu "uzun bekleme" ile alır: /api/bekle isteği, odada yeni
@@ -248,14 +255,20 @@ const sunucu = http.createServer(async (istek, yanit) => {
   const yol = url.pathname;
   try {
     if (istek.method === 'OPTIONS') {
-      yanit.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Allow-Methods': 'GET, POST' });
+      yanit.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, X-Oturum', 'Access-Control-Allow-Methods': 'GET, POST' });
       return yanit.end();
     }
-    if (yol === '/api/saglik') return json(yanit, 200, { tamam: true, oda: odalar.size, acilis: new Date(ACILIS).toISOString() });
+    if (yol === '/api/saglik') return json(yanit, 200, { tamam: true, oda: odalar.size, acilis: new Date(ACILIS).toISOString(), depo: DEPO_TURU, mail: !!process.env.BREVO_API_KEY });
 
-    if (yol === '/api/gunluk' && istek.method === 'GET') {
-      const p = url.searchParams;
-      return json(yanit, 200, Gunluk.durum(Gunluk.bugun(), temizId(p.get('id')), Gunluk.cihazAnahtari(istek, p.get('iz'))));
+    // ---- giriş (oturumsuz)
+    if (istek.method === 'POST' && (yol === '/api/giris/kod' || yol === '/api/giris/dogrula')) {
+      const v = await govdeOku(istek);
+      try {
+        return json(yanit, 200, yol === '/api/giris/kod' ? await Hesap.kodIste(istek, v) : await Hesap.dogrula(istek, v));
+      } catch (e) {
+        if (!e.kod) throw e;
+        return json(yanit, e.kod, { hata: e.message, kilit: !!e.kilit, adGerekli: !!e.adGerekli });
+      }
     }
 
     // Aynı ağdakilerin açacağı adres (oyunu kuran bilgisayarda gösterilir)
@@ -275,10 +288,24 @@ const sunucu = http.createServer(async (istek, yanit) => {
       return json(yanit, 200, { odalar: liste.slice(0, 20) });
     }
 
+    // ---- buradan sonrası giriş ister
+    if (!yol.startsWith('/api/')) {
+      if (istek.method === 'GET') return dosyaGonder(yanit, decodeURIComponent(yol));
+      yanit.writeHead(405); return yanit.end();
+    }
+    const hesap = await Hesap.oturumdan(istek);
+    if (!hesap) return json(yanit, 401, { hata: 'Giriş yapman gerekiyor', girisGerekli: true });
+    const id = 'h' + hesap.id;   // odalarda oyuncu kimliği = hesap
+    const ad = hesap.ad;
+
+    if (yol === '/api/ben') return json(yanit, 200, { hesap: Hesap.goster(hesap) });
+
+    if (yol === '/api/gunluk' && istek.method === 'GET') return json(yanit, 200, await GunlukOyun.durum(Gunluk.bugun(), hesap));
+
     // Uzun bekleme: telefonun bildiği sürüm eskiyse hemen, değilse değişince cevap ver
     if (yol === '/api/bekle' && istek.method === 'GET') {
       const oda = odalar.get(String(url.searchParams.get('kod') || '').toUpperCase());
-      const i = oda ? sira(oda, temizId(url.searchParams.get('id'))) : -1;
+      const i = oda ? sira(oda, id) : -1;
       if (i < 0) return json(yanit, 404, { hata: 'Oda bulunamadı' });
       const o = oda.oyuncular[i];
       const dondu = !bagliMi(o);           // bir süre kopmuştu, şimdi geri geldi
@@ -296,29 +323,27 @@ const sunucu = http.createServer(async (istek, yanit) => {
       return;
     }
 
-    if (istek.method === 'POST' && yol === '/api/gunluk/devir') {
-      // Her kayıt yeniden doğrulanır; uydurma sonuç sıralamaya giremez.
+    if (istek.method === 'POST') {
       const v = await govdeOku(istek);
-      return json(yanit, 200, { alinan: Gunluk.iceAl(v.kayitlar), acilis: ACILIS });
-    }
 
-    if (istek.method === 'POST' && yol.startsWith('/api/')) {
-      const v = await govdeOku(istek);
-      const id = temizId(v.id);
-      if (!id) return json(yanit, 400, { hata: 'Kimlik yok' });
+      if (yol === '/api/cikis') { await Hesap.cikis(istek); return json(yanit, 200, { tamam: true }); }
+      if (yol === '/api/ad') {
+        try {
+          const h = await Hesap.adDegistir(hesap, v.ad);
+          for (const oda of odalar.values()) { const o = oda.oyuncular.find(x => x.id === id); if (o) { o.ad = h.ad; yayinla(oda); } }
+          return json(yanit, 200, { hesap: h });
+        } catch (e) { if (!e.kod) throw e; return json(yanit, e.kod, { hata: e.message }); }
+      }
 
-      if (yol === '/api/gunluk/sor' || yol === '/api/gunluk/esitle' || yol === '/api/gunluk/bitti') {
+      if (yol === '/api/gunluk/sor') {
         const gun = Gunluk.bugun();
         if (v.gun !== gun) return json(yanit, 409, { hata: 'Gün değişti, yeni bulmaca başladı', gun, gunDegisti: true });
-        const cihaz = Gunluk.cihazAnahtari(istek, v.iz);
-        const r = yol === '/api/gunluk/sor'
-          ? Gunluk.sor(gun, id, cihaz, v.ad, v.tahmin)
-          : Gunluk.esitle(gun, id, cihaz, v.ad, v.tahminler);
+        const r = await GunlukOyun.sor(gun, hesap, v.tahmin);
         return json(yanit, r.hata ? r.kod : 200, r);
       }
 
       if (yol === '/api/oda') {
-        const oda = odaKur(id, temizAd(v.ad));
+        const oda = odaKur(id, ad);
         return json(yanit, 200, { kod: oda.kod });
       }
       const oda = odalar.get(String(v.kod || '').toUpperCase());
@@ -326,9 +351,9 @@ const sunucu = http.createServer(async (istek, yanit) => {
 
       if (yol === '/api/katil') {
         const i = sira(oda, id);
-        if (i >= 0) { oda.oyuncular[i].ad = temizAd(v.ad) || oda.oyuncular[i].ad; return json(yanit, 200, { kod: oda.kod }); }
+        if (i >= 0) { oda.oyuncular[i].ad = ad; return json(yanit, 200, { kod: oda.kod }); }
         if (oda.oyuncular.length >= 2) return json(yanit, 409, { hata: 'Oda dolu' });
-        oda.oyuncular.push(oyuncuYap(id, temizAd(v.ad)));
+        oda.oyuncular.push(oyuncuYap(id, ad));
         yayinla(oda);
         return json(yanit, 200, { kod: oda.kod });
       }
@@ -342,43 +367,11 @@ const sunucu = http.createServer(async (istek, yanit) => {
       }
       return json(yanit, 404, { hata: 'Yok' });
     }
-
-    if (istek.method === 'GET') return dosyaGonder(yanit, decodeURIComponent(yol));
-    yanit.writeHead(405); yanit.end();
+    return json(yanit, 404, { hata: 'Yok' });
   } catch (e) {
     console.error(e);
     if (!yanit.headersSent) json(yanit, 500, { hata: 'Sunucu hatası' });
   }
-});
-
-// ------------------------------------------------------------------ günün bulmacası
-// Kurallar ve "bir cihaz = bir oyun" gunluk-sunucu.js'te.
-
-/** Kapanırken sıralamayı genel adrese (yeni sürüme) gönder. */
-async function siralamayiDevret() {
-  const taban = (process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
-  const kayitlar = Gunluk.disaAktar();
-  if (!taban || !kayitlar.length || typeof fetch !== 'function') return;
-  // Trafik yeni sunucuya geçmemişse istek kendimize gelir: o zaman bekleyip yeniden dene.
-  for (let deneme = 0; deneme < 8; deneme++) {
-    try {
-      const r = await fetch(taban + '/api/gunluk/devir', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kayitlar }),
-        signal: AbortSignal.timeout(5000),
-      }).then(x => x.json());
-      if (r.acilis !== ACILIS) { console.log(`Sıralama yeni sürüme devredildi: ${r.alinan}/${kayitlar.length}`); return; }
-    } catch (e) { /* yeni sunucu henüz hazır değil */ }
-    await new Promise(c => setTimeout(c, 2500));
-  }
-  console.log('Sıralama devredilemedi');
-}
-
-let kapaniyor = false;
-process.on('SIGTERM', async () => {
-  if (kapaniyor) return;
-  kapaniyor = true;
-  await siralamayiDevret();
-  process.exit(0);
 });
 
 // ------------------------------------------------------------------ uyanık kalma
@@ -403,10 +396,19 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000).unref();
 
-sunucu.listen(PORT, () => {
+// Veritabanını aç, sonra dinlemeye başla
+depoAc(process.env.DATABASE_URL).then(depo => {
+  DEPO_TURU = depo.tur;
+  Hesap = hesapModulu(depo);
+  GunlukOyun = Gunluk.gunlukModulu(depo);
+  if (depo.tur === 'bellek') console.log('UYARI: DATABASE_URL yok, hesaplar bellekte (sunucu kapanınca silinir).');
+  sunucu.listen(PORT, dinlemeBasladi);
+}).catch(e => { console.error('Veritabanı açılamadı:', e.message); process.exit(1); });
+
+function dinlemeBasladi() {
   console.log('Sayı Bulmaca sunucusu çalışıyor.');
   console.log('  Bu bilgisayarda:     http://localhost:' + PORT);
   const ag = agAdresleri();
   if (ag.length) console.log('  Aynı Wi-Fi\'dakiler:  http://' + ag[0] + ':' + PORT + '   <- telefonda bunu aç');
   for (const a of ag.slice(1)) console.log('                       http://' + a + ':' + PORT);
-});
+}

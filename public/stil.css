@@ -429,3 +429,13 @@ input:focus { border-color: var(--murekkep); }
 .sir-liste .bos { display: block; color: var(--soluk); text-align: center; }
 .sir-ad { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .an-cevap { display: inline-flex; gap: 3px; }
+
+/* ---------- giriş / hesap ---------- */
+.hesap-kart { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; }
+.hesap-kart.ic { display: flex; padding: 0; border: 0; box-shadow: none; background: transparent; }
+.hesap-kart > div { display: flex; flex-direction: column; min-width: 0; }
+.hesap-ad { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hesap-kart small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hesap-kart .sec { flex: none; }
+.giris-hata { margin: 0; color: var(--kirmizi); font-weight: 800; font-size: 14.5px; text-align: center; }
+.modal input { width: 100%; }

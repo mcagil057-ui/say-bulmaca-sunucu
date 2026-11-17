@@ -47,6 +47,10 @@ const S = {
   sohbetAcik: false,
   sohbetSon: null,           // gördüğüm son mesaj numarası (null = oda yeni açıldı)
   sohbetOkunan: 0,           // okuduğum son mesaj numarası
+  hesap: null,               // giriş yapılmış hesap {mail, ad, adDegisebilir}
+  giris: null,               // giriş ekranının durumu
+  adModal: false,
+  cevrimdisi: false,
   analiz: null,              // maç analizi açık mı: null | 'ben' | 'rakip'
   g: null,                   // günün bulmacası
   gSiralama: false,
@@ -68,7 +72,7 @@ async function agAdresiOgren() {
 }
 
 // ------------------------------------------------------------ yardımcılar
-function adim() { return (depo.al('sb_ad', '') || '').trim() || 'Oyuncu'; }
+function adim() { return (S.hesap && S.hesap.ad) || 'Oyuncu'; }
 
 let bildirimZaman;
 function bildir(metin, tur) {
@@ -82,11 +86,13 @@ function titret(ms) { try { navigator.vibrate && navigator.vibrate(ms || 60); } 
 
 async function istek(yol, govde) {
   const r = await fetch(API + yol, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
     body: JSON.stringify(Object.assign({ id: ID }, govde)),
+    headers: basliklar({ 'Content-Type': 'application/json' }),
   });
   let v = {};
   try { v = await r.json(); } catch (e) { /* boş */ }
+  if (r.status === 401 && v.girisGerekli) { girisGerekli(); throw Object.assign(new Error('Yeniden giriş yapman gerekiyor'), { kod: 401 }); }
   if (!r.ok) throw Object.assign(new Error(v.hata || ('Sunucu ' + r.status)), { kod: r.status });
   return v;
 }
@@ -153,10 +159,11 @@ class Cevrimici {
       this.iptal = new AbortController();
       const saat = setTimeout(() => this.iptal.abort(), 40000);
       try {
-        const r = await fetch(`${API}/api/bekle?kod=${encodeURIComponent(this.kod)}&id=${encodeURIComponent(ID)}&surum=${this.surum}`,
-          { signal: this.iptal.signal, cache: 'no-store' });
+        const r = await fetch(`${API}/api/bekle?kod=${encodeURIComponent(this.kod)}&surum=${this.surum}`,
+          { signal: this.iptal.signal, cache: 'no-store', headers: basliklar() });
         clearTimeout(saat);
         if (this.kapandi) return;
+        if (r.status === 401) { girisGerekli(); return; }
         if (r.status === 404) { anaMenu(); bildir('Oda kapanmış (sunucu yeniden başlamış olabilir).', 'kotu'); return; }
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const v = await r.json();
@@ -442,7 +449,8 @@ async function baglan(kod) {
 function ciz() {
   const d = S.d;
   let html;
-  if (!S.kaynak) html = S.alt === 'gunluk' ? gunlukCiz() : S.alt === 'profil' ? profilCiz() : girisCiz();
+  if (!S.hesap) html = girisEkrani();
+  else if (!S.kaynak) html = S.alt === 'gunluk' ? gunlukCiz() : S.alt === 'profil' ? profilCiz() : girisCiz();
   else if (!d) html = `<div class="ortala"><div class="yukleniyor">Bağlanılıyor…</div><button class="dugme ince" data-e="cik">Vazgeç</button></div>`;
   else if (!d.mac) html = lobiCiz(d);
   else if (d.mac.faz === 'gizli') html = gizliCiz(d);
@@ -471,7 +479,6 @@ function ayarFormu(a, eylem, kilitli) {
 }
 
 function girisCiz() {
-  const ad = esc(depo.al('sb_ad', ''));
   let alt = '';
   if (S.alt === 'katil') {
     alt = `<div class="kart">
@@ -510,10 +517,7 @@ function girisCiz() {
   }
   return `<section class="giris">
     ${logo()}
-    <div class="kart ad-kart">
-      <label for="ad">Adın</label>
-      <input id="ad" maxlength="16" autocomplete="nickname" placeholder="Adını yaz" value="${ad}">
-    </div>
+    ${hesapKarti()}
     ${alt}
   </section>`;
 }
@@ -753,6 +757,10 @@ function katmanCiz() {
     k.innerHTML = `<div class="perde">${siralamaHTML()}</div>`;
     return;
   }
+  if (S.adModal && S.hesap) {
+    k.innerHTML = `<div class="perde">${adModalHTML()}</div>`;
+    return;
+  }
   if (S.kurallar) {
     ic = `<div class="modal"><h2>Nasıl oynanır?</h2>
       <ol class="kurallar">
@@ -955,7 +963,7 @@ const EYLEM = {
   kurallarKapat() { S.kurallar = false; katmanCiz(); },
   sesDegistir() { Ses.degistir(); ciz(); },
 };
-Object.assign(EYLEM, PROFIL_EYLEM, ANALIZ_EYLEM, GUNLUK_EYLEM);
+Object.assign(EYLEM, PROFIL_EYLEM, ANALIZ_EYLEM, GUNLUK_EYLEM, GIRIS_EYLEM);
 
 /** Rakam yazılan ekranın ayarı: günün bulmacası ya da maç. */
 function girdiAyari() { return !S.kaynak && S.alt === 'gunluk' && S.g && S.g.gun ? gunlukAyar() : S.d.mac.ayar; }
@@ -968,7 +976,6 @@ document.addEventListener('click', e => {
 });
 
 document.addEventListener('input', e => {
-  if (e.target.id === 'ad') depo.koy('sb_ad', e.target.value.trim().slice(0, 16));
   if (e.target.id === 'kod') {
     e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     S.katilKod = e.target.value;
@@ -1002,7 +1009,10 @@ document.addEventListener('keydown', e => {
 });
 
 // ------------------------------------------------------------ açılış
-(function basla() {
+(async function basla() {
+  ciz(); // "Yükleniyor"
+  // Önce hesap: oyunun tamamı girişle oynanır
+  if (!(await hesapDenetle())) { ciz(); return; }
   const p = new URLSearchParams(location.search);
   const davet = (p.get('oda') || '').toUpperCase();
   const kayitli = depo.al('sb_oda', null);
@@ -1012,10 +1022,9 @@ document.addEventListener('keydown', e => {
     S.alt = 'katil'; S.katilKod = davet;
   } else if (kayitli) {
     // Sayfa yenilendi ya da uygulama kapanıp açıldı: odaya geri dön
-    istek('/api/katil', { kod: kayitli, ad: adim() }).then(() => baglan(kayitli)).catch(() => depo.koy('sb_oda', null));
+    istek('/api/katil', { kod: kayitli }).then(() => baglan(kayitli)).catch(() => depo.koy('sb_oda', null));
   }
   ciz();
   acikOdalariYenile();
-  gunlukSonucuKoru(); // sunucu yeniden kurulduysa bugünkü sonucum sıralamaya geri dönsün
   agAdresiOgren().then(() => { if (!S.kaynak) ciz(); });
 })();

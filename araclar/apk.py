@@ -24,8 +24,8 @@ import ikon  # noqa: E402
 ANDROID = os.path.join(KOK, "android")
 CIKTI = os.path.join(ANDROID, "cikti")
 PAKET = "com.sayibulmaca.oyun"
-SURUM = "1.0"
-SURUM_KOD = "1"
+SURUM = "1.1"
+SURUM_KOD = "2"
 
 
 def anahtar(a):

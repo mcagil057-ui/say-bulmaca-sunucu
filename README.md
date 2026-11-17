@@ -29,6 +29,23 @@ uygulama yakalar, hakkı düşer, rakibe doğru cevabı uygulama verir.
 - Android (APK), iPhone (Safari'den aç → Paylaş → Ana Ekrana Ekle) ve
   bilgisayar aynı odada birlikte oynar.
 
+## Hesaplar ve giriş
+
+Oyunun tamamı mail ile girişle oynanır: maile 6 haneli kod gelir (Brevo),
+yeni hesapta ad sorulur. Bir cihazda açılan hesaptan 14 gün başka hesaba
+geçilemez; ad 3 günde bir değişir. Günün bulmacası hesap başına günde bir.
+
+Render'da gereken ortam değişkenleri:
+
+| Değişken | Ne |
+|---|---|
+| `DATABASE_URL` | Neon Postgres bağlantı adresi (hesaplar, günün bulmacası) |
+| `BREVO_API_KEY` | Brevo API anahtarı (giriş kodu maili) |
+| `MAIL_GONDEREN` | Brevo'da doğrulanmış gönderen adresi |
+
+Bunlar yoksa (bilgisayarda deneme) hesaplar bellekte durur ve giriş kodu
+sunucu penceresine yazılır. Denetim: `npm test` (kurallar + hesap akışı).
+
 ## Dosyalar
 
 | Dosya | Ne yapar |

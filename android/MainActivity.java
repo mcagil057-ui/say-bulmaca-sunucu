@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -167,6 +168,16 @@ public class MainActivity extends Activity {
                     startActivity(Intent.createChooser(i, "Oda kodunu gönder"));
                 }
             });
+        }
+
+        /**
+         * Telefonun Android kimliği: uygulama silinip yeniden kurulsa da
+         * değişmez. Sunucu "bir cihazda 14 gün tek hesap" kuralı için kullanır.
+         */
+        @JavascriptInterface
+        public String cihazNo() {
+            String k = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+            return k == null ? "" : k;
         }
     }
 

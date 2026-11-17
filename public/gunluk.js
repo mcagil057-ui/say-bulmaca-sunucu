@@ -2,84 +2,44 @@
  * Sayı Bulmaca — günün bulmacası.
  *
  * Her gün herkese aynı 4 basamaklı sayı. Gizli sayı yalnızca sunucuda durur;
- * telefon her soruyu sunucuya sorar. İlerleme SUNUCUDA tutulur ve cihaza
- * bağlıdır: aynı telefonda uygulamadan da siteden de açsan aynı bulmacayı
- * görürsün, ikinci kez oynayamazsın (bkz. gunluk-sunucu.js). Sorular
- * telefonda da saklanır; sunucu yeniden kurulup kaydı kaybederse geri yüklenir.
+ * telefon her soruyu sunucuya sorar. İlerleme HESABA bağlı, veritabanında
+ * durur: aynı hesapla hangi cihazdan girersen gir kaldığın yerden devam
+ * edersin, bir hesap günde bir kez oynar (bkz. gunluk-sunucu.js).
+ * Telefonda yalnızca eleme tablosu saklanır.
  */
 'use strict';
 const AYLAR = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 function gunYazi(gun) { const [y, a, g] = gun.split('-').map(Number); return `${g} ${AYLAR[a - 1]} ${y}`; }
 
-/**
- * Telefonun uygulamada da tarayıcıda da aynı olan özellikleri. Tarayıcı
- * adı/sürümü bilerek yok: uygulama ile Chrome'da farklıdır.
- */
-let IZ = null;
-function cihazIzi() {
-  if (IZ) return IZ;
-  let gpu = '';
-  try {
-    const c = document.createElement('canvas').getContext('webgl');
-    const e = c && c.getExtension('WEBGL_debug_renderer_info');
-    gpu = c ? String(e ? c.getParameter(e.UNMASKED_RENDERER_WEBGL) : c.getParameter(c.RENDERER)) : '';
-  } catch (e) { /* yok */ }
-  let tz = '';
-  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) { /* yok */ }
-  const ekran = [screen.width, screen.height].sort((a, b) => a - b).join('x'); // yan çevirince de aynı
-  IZ = ['v1', ekran, (window.devicePixelRatio || 1).toFixed(2), navigator.hardwareConcurrency || 0,
-    navigator.deviceMemory || 0, navigator.maxTouchPoints || 0, navigator.platform || '', tz, gpu].join('|');
-  return IZ;
-}
-
 function gunlukAyar() { return Oyun.ayarDuzelt({ basamak: S.g.basamak, basSifir: S.g.basSifir }); }
 function gunlukSakla() {
   const g = S.g;
-  depo.koy('sb_gunluk', JSON.stringify({ gun: g.gun, tahminler: g.tahminler, tablo: g.tablo }));
+  depo.koy('sb_gunluk', JSON.stringify({ gun: g.gun, tablo: g.tablo }));
 }
 function gunlukBitti() { return S.g && S.g.tahminler.some(k => k.arti === S.g.basamak); }
 function sunucudanAl(r) {
   Object.assign(S.g, { gun: r.gun, basamak: r.basamak, basSifir: r.basSifir, siralama: r.siralama, toplam: r.toplam, benim: r.benim, tahminler: r.tahminler || [] });
 }
 
-/**
- * Sunucudaki ilerlemeyi al. Sunucuda daha az soru varsa (sunucu yeniden
- * kurulmuş) telefondakileri geri yükle.
- */
 async function gunlukYukle() {
   S.g = Object.assign(S.g || {}, { yukleniyor: true, hata: null });
   ciz();
   try {
-    const r = await fetch(`${API}/api/gunluk?id=${encodeURIComponent(ID)}&iz=${encodeURIComponent(cihazIzi())}`, { cache: 'no-store' })
-      .then(x => { if (!x.ok) throw new Error('Sunucu ' + x.status); return x.json(); });
+    const x = await fetch(`${API}/api/gunluk`, { cache: 'no-store', headers: basliklar() });
+    if (x.status === 401) { girisGerekli(); return; }
+    if (!x.ok) throw new Error('Sunucu ' + x.status);
+    const r = await x.json();
     const yerel = jsonAl('sb_gunluk', null);
     const ayni = yerel && yerel.gun === r.gun;
     S.g = { tablo: ayni && Array.isArray(yerel.tablo) ? yerel.tablo : new Array(10).fill(0), yukleniyor: false };
     sunucudanAl(r);
-    const yerelSorular = ayni && Array.isArray(yerel.tahminler) ? yerel.tahminler : [];
-    if (yerelSorular.length > S.g.tahminler.length && !S.g.tahminler.length) {
-      try { sunucudanAl(await istek('/api/gunluk/esitle', { gun: r.gun, ad: adim(), iz: cihazIzi(), tahminler: yerelSorular.map(k => k.tahmin) })); } catch (e) { /* olmadı */ }
-    }
+    if (gunlukBitti()) Istat.gunlukKaydet(r.gun, r.tahminler.length);
     gunlukSakla();
   } catch (e) {
     S.g.yukleniyor = false;
     S.g.hata = 'Sunucuya ulaşılamadı. İnternetini kontrol edip tekrar dene.';
   }
   if (S.alt === 'gunluk') ciz();
-}
-
-/**
- * Uygulama açılınca: bugün telefonda sorular var ama sunucuda yoksa (sunucu
- * yeniden kurulmuş olabilir) sessizce geri yükle; sıralamadaki yerim dönsün.
- */
-async function gunlukSonucuKoru() {
-  const y = jsonAl('sb_gunluk', null);
-  if (!y || y.gun !== bugunTR() || !Array.isArray(y.tahminler) || !y.tahminler.length) return;
-  try {
-    const r = await fetch(`${API}/api/gunluk?id=${encodeURIComponent(ID)}&iz=${encodeURIComponent(cihazIzi())}`, { cache: 'no-store' }).then(x => x.json());
-    if (r.gun !== y.gun || (r.tahminler && r.tahminler.length)) return;
-    await istek('/api/gunluk/esitle', { gun: y.gun, ad: adim(), iz: cihazIzi(), tahminler: y.tahminler.map(k => k.tahmin) });
-  } catch (e) { /* bir dahaki açılışta */ }
 }
 
 function gunlukCiz() {
@@ -140,7 +100,7 @@ const GUNLUK_EYLEM = {
     if (S.mesgul) return;
     S.mesgul = true; S.girdi = '';
     try {
-      const r = await istek('/api/gunluk/sor', { gun: g.gun, tahmin: t, ad: adim(), iz: cihazIzi() });
+      const r = await istek('/api/gunluk/sor', { gun: g.gun, tahmin: t });
       sunucudanAl(r);
       gunlukSakla();
       const k = g.tahminler[g.tahminler.length - 1] || {};
