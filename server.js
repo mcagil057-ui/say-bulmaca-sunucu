@@ -21,6 +21,7 @@ const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
 const Oyun = require('./public/oyun.js');
+const Gunluk = require('./gunluk-sunucu.js');
 
 /**
  * Aynı Wi-Fi'daki telefonların açacağı adresler (ör. 192.168.1.20).
@@ -252,7 +253,10 @@ const sunucu = http.createServer(async (istek, yanit) => {
     }
     if (yol === '/api/saglik') return json(yanit, 200, { tamam: true, oda: odalar.size, acilis: new Date(ACILIS).toISOString() });
 
-    if (yol === '/api/gunluk' && istek.method === 'GET') return json(yanit, 200, gunlukDurum(temizId(url.searchParams.get('id'))));
+    if (yol === '/api/gunluk' && istek.method === 'GET') {
+      const p = url.searchParams;
+      return json(yanit, 200, Gunluk.durum(Gunluk.bugun(), temizId(p.get('id')), Gunluk.cihazAnahtari(istek, p.get('iz'))));
+    }
 
     // Aynı ağdakilerin açacağı adres (oyunu kuran bilgisayarda gösterilir)
     if (yol === '/api/adres') {
@@ -295,11 +299,7 @@ const sunucu = http.createServer(async (istek, yanit) => {
     if (istek.method === 'POST' && yol === '/api/gunluk/devir') {
       // Her kayıt yeniden doğrulanır; uydurma sonuç sıralamaya giremez.
       const v = await govdeOku(istek);
-      let alinan = 0;
-      for (const k of Array.isArray(v.kayitlar) ? v.kayitlar.slice(0, 5000) : []) {
-        if (k && typeof k.gun === 'string' && gunlukEkle(k.gun, temizId(k.id), k.ad, k.tahminler, +k.zaman || Date.now())) alinan++;
-      }
-      return json(yanit, 200, { alinan, acilis: ACILIS });
+      return json(yanit, 200, { alinan: Gunluk.iceAl(v.kayitlar), acilis: ACILIS });
     }
 
     if (istek.method === 'POST' && yol.startsWith('/api/')) {
@@ -307,19 +307,14 @@ const sunucu = http.createServer(async (istek, yanit) => {
       const id = temizId(v.id);
       if (!id) return json(yanit, 400, { hata: 'Kimlik yok' });
 
-      if (yol === '/api/gunluk/sor') {
-        const gun = bugun();
-        if (v.gun !== gun) return json(yanit, 409, { hata: 'Gün değişti, yeni bulmaca başladı', gun });
-        const t = String(v.tahmin || '');
-        const h = Oyun.sayiHatasi(t, GUNLUK_AYAR);
-        if (h) return json(yanit, 400, { hata: h });
-        return json(yanit, 200, Oyun.puanla(gunlukGizli(gun), t));
-      }
-      if (yol === '/api/gunluk/bitti') {
-        const gun = bugun();
-        if (v.gun !== gun) return json(yanit, 409, { hata: 'Gün değişti', gun });
-        if (!gunlukEkle(gun, id, v.ad, v.tahminler, Date.now())) return json(yanit, 400, { hata: 'Sonuç doğrulanamadı' });
-        return json(yanit, 200, gunlukDurum(id));
+      if (yol === '/api/gunluk/sor' || yol === '/api/gunluk/esitle' || yol === '/api/gunluk/bitti') {
+        const gun = Gunluk.bugun();
+        if (v.gun !== gun) return json(yanit, 409, { hata: 'Gün değişti, yeni bulmaca başladı', gun, gunDegisti: true });
+        const cihaz = Gunluk.cihazAnahtari(istek, v.iz);
+        const r = yol === '/api/gunluk/sor'
+          ? Gunluk.sor(gun, id, cihaz, v.ad, v.tahmin)
+          : Gunluk.esitle(gun, id, cihaz, v.ad, v.tahminler);
+        return json(yanit, r.hata ? r.kod : 200, r);
       }
 
       if (yol === '/api/oda') {
@@ -357,57 +352,12 @@ const sunucu = http.createServer(async (istek, yanit) => {
 });
 
 // ------------------------------------------------------------------ günün bulmacası
-/*
- * Herkese aynı gizli sayı. Sayı tarihten ve gizli bir tuzdan hesaplanır:
- * sunucu yeniden başlasa da aynı kalır, telefona hiç gönderilmez.
- *
- * Sıralama bellekte durur; ücretsiz Render'da kalıcı disk yok. Kaybolmasın
- * diye iki yol var:
- *  1. Yeni sürüm yayınlanırken Render önce yeni sunucuyu açar, trafiği ona
- *     verir, sonra eskisine SIGTERM gönderir. Eski sunucu kapanmadan bütün
- *     kayıtları (soruları dahil) genel adrese, yani YENİ sunucuya gönderir.
- *  2. Telefon uygulama açılınca bugünkü sonucu sıralamada yoksa yeniden
- *     gönderir (sorular telefonda saklı, sunucu yeniden doğrular).
- */
-const GUNLUK_AYAR = Oyun.ayarDuzelt({ basamak: 4 });
-const GUNLUK_TUZ = process.env.GUNLUK_TUZ || 'sayi-bulmaca-gunun-sayisi';
-const gunlukKayit = new Map();   // gun -> Map(id -> {ad, soru, zaman, tahminler})
-
-/** Türkiye saatine göre bugünün tarihi: 2026-11-17 */
-function bugun() { return new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 10); }
-
-function gunlukGizli(gun) {
-  const h = crypto.createHmac('sha256', GUNLUK_TUZ).update(gun).digest();
-  const tum = Oyun.tumSayilar(GUNLUK_AYAR);
-  return tum[h.readUInt32BE(0) % tum.length];
-}
-
-function gunlukSonuclar(gun) {
-  if (!gunlukKayit.has(gun)) {
-    gunlukKayit.set(gun, new Map());
-    for (const g of [...gunlukKayit.keys()].sort().slice(0, -3)) gunlukKayit.delete(g); // son 3 gün yeter
-  }
-  return gunlukKayit.get(gun);
-}
-
-/** Doğrulanmış bir çözümü sıralamaya ekle. Geçersizse false. */
-function gunlukEkle(gun, id, ad, tahminler, zaman) {
-  if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(gun) || gun > bugun()) return false;
-  const liste = Array.isArray(tahminler) ? tahminler.map(String).slice(0, 200) : [];
-  // Sunucu kendisi denetler: son tahmin gerçekten günün sayısı mı?
-  if (!liste.length || liste[liste.length - 1] !== gunlukGizli(gun) || liste.some(t => Oyun.sayiHatasi(t, GUNLUK_AYAR))) return false;
-  const sonuclar = gunlukSonuclar(gun);
-  const eski = sonuclar.get(id);
-  if (!eski) sonuclar.set(id, { ad: temizAd(ad), soru: liste.length, zaman, tahminler: liste });
-  else if (zaman < eski.zaman) eski.zaman = zaman; // devirde ilk çözüm zamanı korunur
-  return true;
-}
+// Kurallar ve "bir cihaz = bir oyun" gunluk-sunucu.js'te.
 
 /** Kapanırken sıralamayı genel adrese (yeni sürüme) gönder. */
 async function siralamayiDevret() {
   const taban = (process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
-  const kayitlar = [];
-  for (const [gun, m] of gunlukKayit) for (const [id, x] of m) kayitlar.push({ gun, id, ad: x.ad, zaman: x.zaman, tahminler: x.tahminler });
+  const kayitlar = Gunluk.disaAktar();
   if (!taban || !kayitlar.length || typeof fetch !== 'function') return;
   // Trafik yeni sunucuya geçmemişse istek kendimize gelir: o zaman bekleyip yeniden dene.
   for (let deneme = 0; deneme < 8; deneme++) {
@@ -430,14 +380,6 @@ process.on('SIGTERM', async () => {
   await siralamayiDevret();
   process.exit(0);
 });
-
-function gunlukDurum(id) {
-  const gun = bugun();
-  const liste = [...gunlukSonuclar(gun).entries()]
-    .map(([k, x]) => ({ ad: x.ad, soru: x.soru, zaman: x.zaman, ben: k === id }))
-    .sort((a, b) => a.soru - b.soru || a.zaman - b.zaman);
-  return { gun, basamak: GUNLUK_AYAR.basamak, basSifir: GUNLUK_AYAR.basSifir, siralama: liste.slice(0, 50), toplam: liste.length, benim: liste.find(x => x.ben) || null };
-}
 
 // ------------------------------------------------------------------ uyanık kalma
 /*
