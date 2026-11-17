@@ -449,3 +449,9 @@ input:focus { border-color: var(--murekkep); }
 .yaris-zaman { margin-left: auto; font-size: 12px; }
 .sure.yaris-sure { min-width: 70px; font-size: 22px; }
 .skor-serit span b { font-family: var(--el); font-size: 22px; font-weight: 400; }
+.bot-kart .sayac { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.bot-kart .sayac .sec { min-width: 32px; padding: 4px 8px; }
+.bot-kart .sayac b { font-family: var(--el); font-size: 22px; font-weight: 400; min-width: 14px; }
+.bot-secim .bot-kart { min-width: 0; padding-left: 4px; padding-right: 4px; }
+.bot-kart .sayac { gap: 3px; }
+.bot-kart .sayac .sec { min-width: 26px; padding: 3px 6px; }

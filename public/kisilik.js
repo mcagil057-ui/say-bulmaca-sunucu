@@ -68,3 +68,22 @@ function botCevapla(kisilik, metin) {
   if (/tebrik|helal|aferin|bravo|iyi oyun/.test(m)) return sec(k.tebrik);
   return sec(k.genel);
 }
+
+/*
+ * Botlarla YARIŞ: kazanan en kısa sürede bulan olduğu için botlar her soru
+ * arasında "düşünür". Süreler ölçüme göre ayarlandı (3 basamak, ortalama
+ * soru: Ali 10,8 · Kemal 6,3 · Ayşe 5,0) ki normal hızda ortalama bitiş
+ * süresi zorlukla aynı sırada olsun: Ali ~2,5 dk, Kemal ~1 dk 40 sn, Ayşe ~1 dk.
+ */
+const BOT_HIZ = {
+  soruBasina: { kolay: 14000, orta: 16000, zor: 12000 },  // ms, 3 basamakta
+  basamak: { 3: 1, 4: 1.3, 5: 1.6 },                       // büyük sayıda daha uzun düşünür
+  hiz: { yavas: 1.5, normal: 1, hizli: 0.6 },
+  ad: { yavas: 'Yavaş', normal: 'Normal', hizli: 'Hızlı' },
+};
+/** Botun bir sonraki sorusuna kadar düşünme süresi (ms), her seferinde biraz farklı. */
+function botDusunmeSuresi(seviye, basamak, hiz, ilk, rnd) {
+  rnd = rnd || Math.random;
+  const t = BOT_HIZ.soruBasina[seviye] * (BOT_HIZ.basamak[basamak] || 1) * (BOT_HIZ.hiz[hiz] || 1);
+  return Math.round(t * (0.7 + 0.6 * rnd()) + (ilk ? 1500 + 2000 * rnd() : 0));
+}

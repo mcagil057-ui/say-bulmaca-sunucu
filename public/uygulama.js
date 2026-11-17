@@ -41,6 +41,9 @@ const S = {
   mesgul: false,
   botSeviye: depo.al('sb_bot', 'orta'),
   botAyar: Oyun.ayarDuzelt(jsonAl('sb_botayar', {})),
+  botMod: depo.al('sb_botmod', 'klasik'),        // 'klasik' (1 bot) | 'yaris' (1–3 bot)
+  botYaris: jsonAl('sb_botyaris', { kolay: 0, orta: 1, zor: 0 }),
+  botHiz: depo.al('sb_bothiz', 'normal'),
   katilKod: '',
   acikOdalar: [],
   agAdres: null,             // aynı Wi-Fi'dakilerin açacağı adres
@@ -311,6 +314,113 @@ class YerelOda {
   kapat() { this.kapandi = true; clearTimeout(this.saat); clearTimeout(this.botSaat); this.saatler.forEach(clearTimeout); this.mac.faz = 'bitti'; }
 }
 
+/**
+ * Botlarla YARIŞ: telefonda döner, internet gerekmez. Sen + 1–3 bot aynı
+ * sayıyı aynı anda ararsınız; her bot kendi hızında "düşünüp" sorar
+ * (kisilik.js: botDusunmeSuresi). İlk bulan kazanır.
+ */
+class YerelYaris {
+  constructor(seviyeler, ayar, hiz) {
+    this.ayar = Oyun.ayarDuzelt(Object.assign({}, ayar, { oyunTuru: 'yaris' }));
+    this.hiz = hiz;
+    const say = {};
+    this.botlar = seviyeler.map((sv, i) => {
+      say[sv] = (say[sv] || 0) + 1;
+      const k = BOT_KISILIK[sv];
+      const coklu = seviyeler.filter(x => x === sv).length > 1;
+      return { id: 'bot' + i, seviye: sv, ad: k.simge + ' ' + k.ad + (coklu ? ' ' + say[sv] : '') };
+    });
+    this.macNo = 0; this.skor = {}; this.sohbet = []; this.mesajNo = 0;
+    this.saatler = []; this.botSaat = {};
+    this.yeniMac();
+    this.botYaz(this.rastgeleBot(), 'basla', 1200);
+  }
+  rastgeleBot() { return this.botlar[Math.floor(Math.random() * this.botlar.length)]; }
+  sec(b, tur) { const l = BOT_KISILIK[b.seviye][tur]; return l[Math.floor(Math.random() * l.length)]; }
+  yeniMac() {
+    Object.values(this.botSaat).forEach(clearTimeout);
+    this.macNo++;
+    this.mac = new Oyun.Yaris(this.ayar, [{ id: 'ben', ad: adim() }].concat(this.botlar.map(b => ({ id: b.id, ad: b.ad }))));
+    this.yayinla();
+    this.botlar.forEach(b => this.botPlanla(b, true));
+  }
+  durum() {
+    return {
+      oda: {
+        kod: null, bot: 'yaris', ayar: this.ayar, kurucuBen: true, macNo: this.macNo, faz: 'mac', berabere: 0,
+        oyuncular: [{ ad: adim(), bagli: true, ben: true, galibiyet: this.skor.ben || 0 }]
+          .concat(this.botlar.map(b => ({ ad: b.ad, bagli: true, ben: false, galibiyet: this.skor[b.id] || 0 }))),
+      },
+      mac: this.mac.gorunum('ben'),
+      sohbet: this.sohbet.slice(),
+      simdi: Date.now(),
+    };
+  }
+  yayinla() { this.sonuclandir(); durumGeldi(this.durum()); }
+  /** Yarış bitince: skor + botlardan biri konuşur. */
+  sonuclandir() {
+    const m = this.mac;
+    if (m.faz !== 'bitti' || m.skorlandi) return;
+    m.skorlandi = true;
+    Object.values(this.botSaat).forEach(clearTimeout);
+    if (m.kazanan) this.skor[m.kazanan] = (this.skor[m.kazanan] || 0) + 1;
+    if (m.kazanan === 'ben') this.botYaz(this.rastgeleBot(), 'kaybettim', 900);
+    else if (m.kazanan) this.botYaz(this.botlar.find(b => b.id === m.kazanan), 'buldum', 900);
+  }
+  /** Botun bir sonraki sorusunu düşünme süresi sonra sor. */
+  botPlanla(b, ilk) {
+    clearTimeout(this.botSaat[b.id]);
+    const m = this.mac;
+    if (m.faz !== 'oyun') return;
+    this.botSaat[b.id] = setTimeout(() => {
+      if (this.kapandi || this.mac !== m || m.faz !== 'oyun') return;
+      const o = m._o(b.id);
+      m.tahminEt(b.id, Oyun.botTahmin(b.seviye, m.ayar, o.sorular.map(k => ({ tahmin: k.tahmin, arti: k.arti, eksi: k.eksi }))));
+      const son = o.sorular[o.sorular.length - 1];
+      if (m.faz === 'oyun' && son && son.arti >= m.ayar.basamak - 1 && Math.random() < 0.35) this.botYaz(b, 'benYakin');
+      this.yayinla();
+      this.botPlanla(b, false);
+    }, botDusunmeSuresi(b.seviye, m.ayar.basamak, this.hiz, ilk));
+  }
+  /** tur: kişilik satırı türü ya da hazır metin. */
+  botYaz(b, tur, gecikme) {
+    const metin = BOT_KISILIK[b.seviye][tur] ? this.sec(b, tur) : tur;
+    this.saatler.push(setTimeout(() => {
+      if (this.kapandi) return;
+      this.sohbet.push({ no: ++this.mesajNo, ad: b.ad, metin, ben: false });
+      durumGeldi(this.durum());
+    }, gecikme || 900 + Math.random() * 1500));
+  }
+  async eylem(tur, v) {
+    v = v || {};
+    let h = null;
+    switch (tur) {
+      case 'tahmin': h = this.mac.tahminEt('ben', String(v.sayi)); break;
+      case 'teslim': this.mac.cekil('ben'); break;
+      case 'mesaj': {
+        const metin = String(v.metin || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        if (!metin) return;
+        this.sohbet.push({ no: ++this.mesajNo, ad: adim(), metin, ben: true });
+        durumGeldi(this.durum());
+        const b = this.rastgeleBot();
+        this.botYaz(b, botCevapla(b.seviye, metin), 1200 + Math.random() * 1500);
+        return;
+      }
+      case 'rovans': this.yeniMac(); return;
+      case 'ayril': case 'lobi': this.kapat(); anaMenu('bot'); return;
+      default: h = 'Bu oyunda yok';
+    }
+    if (h) throw new Error(h);
+    this.yayinla();
+  }
+  kapat() {
+    this.kapandi = true;
+    Object.values(this.botSaat).forEach(clearTimeout);
+    this.saatler.forEach(clearTimeout);
+    if (this.mac.faz === 'oyun') this.mac.cekil('ben');
+  }
+}
+
 // ------------------------------------------------------------ durum akışı
 function durumGeldi(d) {
   S.ofset = d.simdi - Date.now();
@@ -505,8 +615,31 @@ function girisCiz() {
       <button class="dugme ana" data-e="katil">Odaya gir</button>
       <button class="dugme ince" data-e="geri">Geri</button>
     </div>`;
+  } else if (S.alt === 'bot' && S.botMod === 'yaris') {
+    const toplam = S.botYaris.kolay + S.botYaris.orta + S.botYaris.zor;
+    const secA = (anahtar, deger, etiket) => `<button class="sec ${S.botAyar[anahtar] === deger ? 'secili' : ''}" data-e="botAyar" data-v="${anahtar}=${deger}">${etiket}</button>`;
+    alt = `<div class="kart">
+      ${botModSecimi()}
+      <label>Rakiplerin <small>(1–3 bot, en hızlı bulan kazanır)</small></label>
+      <div class="bot-secim">${['kolay', 'orta', 'zor'].map(sv => {
+        const k = BOT_KISILIK[sv], n = S.botYaris[sv];
+        return `<div class="bot-kart ${n ? 'secili' : ''}">
+          <span class="bot-simge">${k.simge}</span><b>${esc(k.ad)}</b><small>${SEVIYE_AD[sv]}</small>
+          <div class="sayac"><button class="sec" data-e="botSayi" data-v="${sv}:-1" ${n ? '' : 'disabled'} aria-label="Azalt">−</button><b>${n}</b>
+          <button class="sec" data-e="botSayi" data-v="${sv}:1" ${toplam >= 3 ? 'disabled' : ''} aria-label="Artır">+</button></div></div>`;
+      }).join('')}</div>
+      <div class="ayarlar">
+        <div class="ayar"><span>Bot hızı</span><div class="secenekler genis">${Object.keys(BOT_HIZ.hiz).map(h => `<button class="sec ${S.botHiz === h ? 'secili' : ''}" data-e="botHiz" data-v="${h}">${BOT_HIZ.ad[h]}</button>`).join('')}</div>
+          <small class="sol">Normal hızda 3 basamakta ortalama: 🐣 Ali ~2,5 dk · 🦊 Kemal ~1 dk 45 sn · 🧠 Ayşe ~1 dk</small></div>
+        <div class="ayar"><span>Basamak</span><div class="secenekler">${[3, 4, 5].map(b => secA('basamak', b, b)).join('')}</div></div>
+        <div class="ayar"><span>Sayı 0 ile başlayabilir</span><div class="secenekler">${secA('basSifir', false, 'Hayır')}${secA('basSifir', true, 'Evet')}</div></div>
+      </div>
+      <button class="dugme ana" data-e="botBasla" ${toplam ? '' : 'disabled'}>Yarışı başlat</button>
+      <button class="dugme ince" data-e="geri">Geri</button>
+    </div>`;
   } else if (S.alt === 'bot') {
     alt = `<div class="kart">
+      ${botModSecimi()}
       <label>Rakibini seç</label>
       <div class="bot-secim">${['kolay', 'orta', 'zor'].map(s => {
         const k = BOT_KISILIK[s];
@@ -538,6 +671,13 @@ function girisCiz() {
     ${hesapKarti()}
     ${alt}
   </section>`;
+}
+
+function botModSecimi() {
+  return `<div class="secenekler genis">
+    <button class="sec ${S.botMod === 'klasik' ? 'secili' : ''}" data-e="botMod" data-v="klasik">Klasik (1 bot)</button>
+    <button class="sec ${S.botMod === 'yaris' ? 'secili' : ''}" data-e="botMod" data-v="yaris">🏁 Yarış (1–3 bot)</button>
+  </div>`;
 }
 
 function acikOdalarHTML() {
@@ -975,7 +1115,27 @@ const EYLEM = {
   },
   botSeviye(v) { S.botSeviye = v; depo.koy('sb_bot', v); ciz(); },
   botAyar(v) { S.botAyar = Oyun.ayarDuzelt(Object.assign({}, S.botAyar, ayarDegeri(v))); depo.koy('sb_botayar', JSON.stringify(S.botAyar)); ciz(); },
-  botBasla() { S.d = null; S.kaynak = new YerelOda(S.botSeviye, S.botAyar); ciz(); },
+  botBasla() {
+    S.d = null;
+    if (S.botMod === 'yaris') {
+      const l = [];
+      ['kolay', 'orta', 'zor'].forEach(sv => { for (let i = 0; i < S.botYaris[sv]; i++) l.push(sv); });
+      if (!l.length) return;
+      S.kaynak = new YerelYaris(l, S.botAyar, S.botHiz);
+    } else S.kaynak = new YerelOda(S.botSeviye, S.botAyar);
+    ciz();
+  },
+  botMod(v) { S.botMod = v === 'yaris' ? 'yaris' : 'klasik'; depo.koy('sb_botmod', S.botMod); ciz(); },
+  botHiz(v) { if (BOT_HIZ.hiz[v]) { S.botHiz = v; depo.koy('sb_bothiz', v); ciz(); } },
+  botSayi(v) {
+    const [sv, d] = v.split(':');
+    const y = Object.assign({}, S.botYaris);
+    const toplam = y.kolay + y.orta + y.zor;
+    const yeni = (y[sv] || 0) + Number(d);
+    if (yeni < 0 || (Number(d) > 0 && toplam >= 3)) return;
+    y[sv] = yeni;
+    S.botYaris = y; depo.koy('sb_botyaris', JSON.stringify(y)); ciz();
+  },
   ayar(v) { gonder('ayar', { ayar: ayarDegeri(v) }); },
   basla() { gonder('basla'); },
   async kopyala() {
