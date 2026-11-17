@@ -11,7 +11,14 @@ const crypto = require('crypto');
 const Oyun = require('./public/oyun.js');
 
 const AYAR = Oyun.ayarDuzelt({ basamak: 4 });
-const TUZ = process.env.GUNLUK_TUZ || 'sayi-bulmaca-gunun-sayisi';
+/*
+ * Günün sayısını üreten gizli anahtar. Açık depodaki bir sabit OLAMAZ (herkes
+ * bugünün cevabını hesaplardı): GUNLUK_TUZ yoksa yalnızca sunucunun bildiği
+ * veritabanı adresinden türetilir. Not: Neon şifresi değiştirilirse o günün
+ * sayısı da değişir.
+ */
+const TUZ = process.env.GUNLUK_TUZ
+  || (process.env.DATABASE_URL ? crypto.createHash('sha256').update('gunun-sayisi|' + process.env.DATABASE_URL).digest('hex') : 'yerel-deneme');
 
 /** Türkiye saatine göre bugünün tarihi: 2026-11-17 */
 function bugun() { return new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 10); }

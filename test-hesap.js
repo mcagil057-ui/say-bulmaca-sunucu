@@ -6,7 +6,7 @@ const path = require('path');
 const Oyun = require('./public/oyun.js');
 
 const PORT = 8095;
-const sunucu = spawn(process.execPath, [path.join(__dirname, 'server.js')], { env: Object.assign({}, process.env, { PORT: String(PORT), DATABASE_URL: '', BREVO_API_KEY: '', RENDER: '' }) });
+const sunucu = spawn(process.execPath, [path.join(__dirname, 'server.js')], { env: Object.assign({}, process.env, { PORT: String(PORT), DATABASE_URL: '', BREVO_API_KEY: '', RENDER: '', YEREL_DENEME: '1' }) });
 let kayit = '';
 sunucu.stdout.on('data', d => { kayit += d; });
 sunucu.stderr.on('data', d => { kayit += d; });
@@ -47,13 +47,21 @@ function istemci(tel, iz, ip) {
 
   // Yeni hesap: önce ad sorulur, kod harcanmaz
   const k = await tel1.post('/api/giris/kod', { mail: 'Ali@Ornek.com' });
-  esit([k.durum, k.yeni], [200, true], 'kod istendi, yeni hesap');
+  esit([k.durum, 'yeni' in k], [200, false], 'kod istendi, hesap var mı yok mu söylenmiyor');
   const adsiz = await tel1.post('/api/giris/dogrula', { mail: 'ali@ornek.com', kod: k.deneme });
   esit([adsiz.durum, adsiz.adGerekli], [400, true], 'yeni hesapta ad isteniyor');
   const yanlis = await tel1.post('/api/giris/dogrula', { mail: 'ali@ornek.com', kod: '000000', ad: 'Ali' });
   esit(yanlis.durum, 400, 'yanlış kod reddediliyor');
   const tekrarKod = await tel1.post('/api/giris/kod', { mail: 'ali@ornek.com' });
   esit(tekrarKod.durum, 429, '1 dakika dolmadan yeni kod yok');
+
+  // Aynı anda 300 tahmin: en çok 5'i kontrol edilmeli (deneme hakkı tek adımda düşer)
+  const k2 = await tel1.post('/api/giris/kod', { mail: 'kurban@ornek.com' });
+  const tahminler = Array.from({ length: 300 }, (_, i) => String(i).padStart(6, '0')).filter(t => t !== k2.deneme);
+  const saldiri = await Promise.all(tahminler.map(kod => istemci('saldirgan', '', '7.7.7.7').post('/api/giris/dogrula', { mail: 'kurban@ornek.com', kod, ad: 'X' })));
+  esit(saldiri.filter(r => /yanlış/i.test(r.hata || '')).length <= 5, true, 'aynı anda 300 tahminden en çok 5 tanesi kontrol ediliyor');
+  const dogruKodSonra = await istemci('saldirgan', '', '7.7.7.7').post('/api/giris/dogrula', { mail: 'kurban@ornek.com', kod: k2.deneme, ad: 'X' });
+  esit(!!dogruKodSonra.oturum, false, 'haklar bitince doğru kod da işe yaramıyor');
 
   // Bu testte yeni kod beklememek için doğru kodla gir
   const dg = await tel1.post('/api/giris/dogrula', { mail: 'ali@ornek.com', kod: k.deneme, ad: 'Ali' });
@@ -65,9 +73,10 @@ function istemci(tel, iz, ip) {
   const kilit = await tel1Site.post('/api/giris/kod', { mail: 'ikinci@ornek.com' });
   esit([kilit.durum, kilit.kilit], [403, true], 'aynı cihazda 14 gün başka hesap yok');
   console.log('      mesaj:', kilit.hata);
+  esit(/@/.test(kilit.hata), false, 'kilit mesajında başkasının maili yok');
   // Aynı telefon tarayıcıdan AYNI hesapla girebilir
   const ayniHesap = istemci('telefon-1-chrome-2', 'v1|393x873|2.75|8|8|5|Linux|Europe/Istanbul|Mali', '88.1.1.1');
-  esit((await ayniHesap.post('/api/giris/kod', { mail: 'ali@ornek.com' })).durum, 200, 'aynı telefon aynı hesapla tarayıcıdan da girebiliyor');
+  esit((await ayniHesap.post('/api/giris/kod', { mail: 'ali@ornek.com' })).durum !== 403, true, 'aynı telefon aynı hesapla tarayıcıdan girerken kilide takılmıyor');
 
   // Aynı evde başka telefon: kendi hesabını açabilir
   const abla = istemci('telefon-2', 'v1|360x800|3.00|8|4|5|Linux|Europe/Istanbul|Adreno', '88.1.1.1');
@@ -98,6 +107,20 @@ function istemci(tel, iz, ip) {
   await abla.post('/api/katil', { kod: oda.kod });
   const d = await abla.get(`/api/bekle?kod=${oda.kod}&surum=-1`);
   esit(d.durum.oda.oyuncular.map(o => o.ad), ['Ali', 'Abla'], 'odada adlar hesaptan');
+
+  // Güvenlik: JSON dışı istek, başka siteden istek, girişsiz oda listesi, oda kodu tahmini, hesap başına tek oda
+  const duz = await fetch(`http://localhost:${PORT}/api/giris/kod`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ mail: 'x@y.com', tel: 'a' }) });
+  esit(duz.status, 415, 'JSON olmayan istek reddediliyor');
+  const ops = await fetch(`http://localhost:${PORT}/api/giris/kod`, { method: 'OPTIONS' });
+  esit([ops.status, ops.headers.get('access-control-allow-origin')], [405, null], 'başka sitelerden istek izni yok');
+  esit((await fetch(`http://localhost:${PORT}/api/odalar`)).status, 401, 'oda listesi girişsiz görünmüyor');
+  const sayfa = await fetch(`http://localhost:${PORT}/`);
+  esit(/script-src 'self'/.test(sayfa.headers.get('content-security-policy') || '') && sayfa.headers.get('x-frame-options') === 'DENY', true, 'güvenlik başlıkları var');
+  let sonKatil;
+  for (let i = 0; i < 21; i++) sonKatil = await abla.post('/api/katil', { kod: 'ZZZ' + (i % 10) });
+  esit(sonKatil.durum, 429, 'oda kodu tahmini sınırlı');
+  const o1 = await tel1.post('/api/oda', {}), o2 = await tel1.post('/api/oda', {});
+  esit((await tel1.post('/api/eylem', { kod: o1.kod, tur: 'basla' })).durum !== 200 && o1.kod !== o2.kod, true, 'yeni oda kurunca eski odadan çıkılıyor');
 
   // Çıkış
   await tel1.post('/api/cikis', {});

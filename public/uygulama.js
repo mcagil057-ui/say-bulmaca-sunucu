@@ -533,9 +533,9 @@ function acikOdalarHTML() {
 }
 
 async function acikOdalariYenile() {
-  if (S.kaynak || S.alt) return; // yalnızca ana menüdeyken
+  if (S.kaynak || S.alt || !S.hesap) return; // yalnızca girişli ve ana menüdeyken
   try {
-    const r = await fetch(API + '/api/odalar').then(x => x.json());
+    const r = await fetch(API + '/api/odalar', { headers: basliklar() }).then(x => x.json());
     S.acikOdalar = r.odalar || [];
   } catch (e) { S.acikOdalar = []; }
   // Yalnızca listeyi yenile: bütün ekranı çizersek ad kutusuna yazılan kaybolur

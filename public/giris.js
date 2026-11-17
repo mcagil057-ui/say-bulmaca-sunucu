@@ -134,7 +134,8 @@ const GIRIS_EYLEM = {
       const r = await fetch(API + '/api/giris/kod', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ mail: g.mail }, cihazBilgisi())) });
       const v = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(v.hata || 'Sunucu ' + r.status);
-      Object.assign(g, { adim: 'kod', yeni: !!v.yeni, kod: v.deneme || '' }); // deneme: yalnızca bilgisayardaki deneme sunucusunda
+      // Sunucu hesabın olup olmadığını söylemez; yeni hesapsa ad, kod doğrulanınca istenir.
+      Object.assign(g, { adim: 'kod', kod: v.deneme || '' }); // deneme: yalnızca bilgisayardaki deneme sunucusunda
       bildir('Kod gönderildi, mailini kontrol et');
       setTimeout(() => $('#g-kod') && $('#g-kod').focus(), 50);
     } catch (e) { g.hata = e.message; }
@@ -151,7 +152,10 @@ const GIRIS_EYLEM = {
       const r = await fetch(API + '/api/giris/dogrula', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ mail: g.mail, kod: g.kod, ad: g.ad }, cihazBilgisi())) });
       const v = await r.json().catch(() => ({}));
       if (!r.ok) {
-        if (v.adGerekli) g.yeni = true;
+        if (v.adGerekli) {
+          g.yeni = true;
+          if (!g.ad) { g.hata = 'Kod doğru! Yeni hesap açılıyor: oyunda görünecek adını yaz.'; g.mesgul = false; ciz(); setTimeout(() => $('#g-ad') && $('#g-ad').focus(), 50); return; }
+        }
         throw new Error(v.hata || 'Sunucu ' + r.status);
       }
       depo.koy('sb_oturum', v.oturum);

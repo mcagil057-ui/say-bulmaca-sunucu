@@ -29,7 +29,7 @@ const os = require('os');
 const Oyun = require('./public/oyun.js');
 const Gunluk = require('./gunluk-sunucu.js');
 const { depoAc } = require('./depo.js');
-const { hesapModulu } = require('./hesap.js');
+const { hesapModulu, yereldenMi } = require('./hesap.js');
 let Hesap, GunlukOyun, DEPO_TURU; // depo açılınca kurulur (aşağıda)
 
 /**
@@ -59,12 +59,14 @@ const HARFLER = 'ABCDEFGHJKLMNPRSTUVYZ23456789'; // karışan harfler (I, O, 0, 
 
 const odalar = new Map();
 
+const ODA_SINIRI = 1000;   // sunucu geneli açık oda sınırı (belleği korumak için)
 function kodUret() {
-  for (;;) {
+  for (let deneme = 0; deneme < 2000; deneme++) {
     let k = '';
     for (let i = 0; i < 4; i++) k += HARFLER[crypto.randomInt(HARFLER.length)];
     if (!odalar.has(k)) return k;
   }
+  throw new Error('Boş oda kodu bulunamadı');
 }
 
 /*
@@ -227,38 +229,74 @@ function eylem(oda, i, v) {
 const TURLER = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json', '.apk': 'application/vnd.android.package-archive' };
 
+/*
+ * Güvenlik başlıkları: sayfa yalnızca kendi betiklerini çalıştırır, başka bir
+ * siteye çerçeve içinde gömülemez, dosya türü tahmin edilmez.
+ */
+const GUVENLIK = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'same-origin',
+  'Content-Security-Policy': [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join('; '),
+};
+
 function json(yanit, kod, govde) {
-  yanit.writeHead(kod, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
+  yanit.writeHead(kod, Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, GUVENLIK));
   yanit.end(JSON.stringify(govde));
 }
 
+/** İstek gövdesi: yalnızca JSON, en çok 16 KB (oyunun hiçbir isteği bunu geçmez). */
 function govdeOku(istek) {
   return new Promise((coz, red) => {
-    let s = '';
-    istek.on('data', p => { s += p; if (s.length > 2000000) { red(new Error('çok büyük')); istek.destroy(); } });
-    istek.on('end', () => { try { coz(s ? JSON.parse(s) : {}); } catch (e) { red(e); } });
+    if (!/^application\/json\b/i.test(String(istek.headers['content-type'] || ''))) return red(Object.assign(new Error('JSON bekleniyor'), { kod: 415 }));
+    let s = '', bitti = false;
+    const kes = e => { if (!bitti) { bitti = true; red(e); } };
+    istek.on('data', p => { s += p; if (s.length > 16384) { kes(Object.assign(new Error('İstek çok büyük'), { kod: 413 })); istek.destroy(); } });
+    istek.on('end', () => { if (bitti) return; bitti = true; try { coz(s ? JSON.parse(s) : {}); } catch (e) { red(Object.assign(new Error('Bozuk istek'), { kod: 400 })); } });
+    istek.on('aborted', () => kes(new Error('İstek yarıda kesildi')));
+    istek.on('error', kes);
   });
 }
 
 function dosyaGonder(yanit, yol) {
   const tam = path.normalize(path.join(KLASOR, yol === '/' ? 'index.html' : yol));
-  if (!tam.startsWith(KLASOR)) { yanit.writeHead(403); return yanit.end(); }
+  if (!tam.startsWith(KLASOR + path.sep)) { yanit.writeHead(403); return yanit.end(); }
   fs.readFile(tam, (h, veri) => {
     if (h) { yanit.writeHead(404); return yanit.end('Bulunamadı'); }
-    yanit.writeHead(200, { 'Content-Type': TURLER[path.extname(tam)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    yanit.writeHead(200, Object.assign({ 'Content-Type': TURLER[path.extname(tam)] || 'application/octet-stream', 'Cache-Control': 'no-cache' }, GUVENLIK));
     yanit.end(veri);
   });
 }
+
+/** Oda kodu tahmin sınırı: hesap başına 10 dakikada 20 yanlış kod. */
+const katilHata = new Map();
+function katilHataSay(id) {
+  const s = Date.now();
+  const l = (katilHata.get(id) || []).filter(t => s - t < 10 * 60 * 1000);
+  katilHata.set(id, l);
+  return l;
+}
+setInterval(() => { for (const id of katilHata.keys()) if (!katilHataSay(id).length) katilHata.delete(id); }, 10 * 60 * 1000).unref();
 
 const sunucu = http.createServer(async (istek, yanit) => {
   const url = new URL(istek.url, 'http://x');
   const yol = url.pathname;
   try {
-    if (istek.method === 'OPTIONS') {
-      yanit.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, X-Oturum', 'Access-Control-Allow-Methods': 'GET, POST' });
-      return yanit.end();
+    // Başka sitelerden gelen istekler (CORS) kabul edilmez: uygulama ve site aynı adresten açılır
+    if (istek.method === 'OPTIONS') { yanit.writeHead(405); return yanit.end(); }
+    if (yol === '/api/saglik') {
+      return json(yanit, 200, { tamam: true, acilis: new Date(ACILIS).toISOString(), hazir: DEPO_TURU === 'postgres' && !!process.env.BREVO_API_KEY && !!process.env.MAIL_GONDEREN });
     }
-    if (yol === '/api/saglik') return json(yanit, 200, { tamam: true, oda: odalar.size, acilis: new Date(ACILIS).toISOString(), depo: DEPO_TURU, mail: !!process.env.BREVO_API_KEY });
 
     // ---- giriş (oturumsuz)
     if (istek.method === 'POST' && (yol === '/api/giris/kod' || yol === '/api/giris/dogrula')) {
@@ -271,10 +309,27 @@ const sunucu = http.createServer(async (istek, yanit) => {
       }
     }
 
-    // Aynı ağdakilerin açacağı adres (oyunu kuran bilgisayarda gösterilir)
+    // Geçici ölçüm: sunucunun önündeki vekil hangi başlıkları ekliyor? (ağ adresini doğru okumak için)
+    if (yol === '/api/ip-olcum' && process.env.RENDER) {
+      const h = istek.headers;
+      return json(yanit, 200, { xff: h['x-forwarded-for'] || null, cf: h['cf-connecting-ip'] || null, tci: h['true-client-ip'] || null, xri: h['x-real-ip'] || null, soket: istek.socket.remoteAddress });
+    }
+
+    // Aynı ağdakilerin açacağı adres: yalnızca oyunu kuran bilgisayarın kendisine söylenir
     if (yol === '/api/adres') {
+      if (!yereldenMi(istek)) return json(yanit, 404, { hata: 'Yok' });
       return json(yanit, 200, { adresler: agAdresleri().map(a => `http://${a}:${PORT}/`) });
     }
+
+    // ---- buradan sonrası giriş ister
+    if (!yol.startsWith('/api/')) {
+      if (istek.method === 'GET') return dosyaGonder(yanit, decodeURIComponent(yol));
+      yanit.writeHead(405); return yanit.end();
+    }
+    const hesap = await Hesap.oturumdan(istek);
+    if (!hesap) return json(yanit, 401, { hata: 'Giriş yapman gerekiyor', girisGerekli: true });
+    const id = 'h' + hesap.id;   // odalarda oyuncu kimliği = hesap
+    const ad = hesap.ad;
 
     // Rakip bekleyen odalar: yalnızca kimin oda açtığı görünür; girmek için kod gerekir (kod gönderilmez)
     if (yol === '/api/odalar') {
@@ -287,16 +342,6 @@ const sunucu = http.createServer(async (istek, yanit) => {
       }
       return json(yanit, 200, { odalar: liste.slice(0, 20) });
     }
-
-    // ---- buradan sonrası giriş ister
-    if (!yol.startsWith('/api/')) {
-      if (istek.method === 'GET') return dosyaGonder(yanit, decodeURIComponent(yol));
-      yanit.writeHead(405); return yanit.end();
-    }
-    const hesap = await Hesap.oturumdan(istek);
-    if (!hesap) return json(yanit, 401, { hata: 'Giriş yapman gerekiyor', girisGerekli: true });
-    const id = 'h' + hesap.id;   // odalarda oyuncu kimliği = hesap
-    const ad = hesap.ad;
 
     if (yol === '/api/ben') return json(yanit, 200, { hesap: Hesap.goster(hesap) });
 
@@ -324,7 +369,8 @@ const sunucu = http.createServer(async (istek, yanit) => {
     }
 
     if (istek.method === 'POST') {
-      const v = await govdeOku(istek);
+      let v;
+      try { v = await govdeOku(istek); } catch (e) { return json(yanit, e.kod || 400, { hata: e.message }); }
 
       if (yol === '/api/cikis') { await Hesap.cikis(istek); return json(yanit, 200, { tamam: true }); }
       if (yol === '/api/ad') {
@@ -343,11 +389,23 @@ const sunucu = http.createServer(async (istek, yanit) => {
       }
 
       if (yol === '/api/oda') {
+        // Bir hesabın aynı anda tek odası olur: yeni oda kurulunca eskilerinden çıkar
+        for (const eski of [...odalar.values()]) {
+          const i = sira(eski, id);
+          if (i < 0) continue;
+          eylem(eski, i, { tur: 'ayril' });
+          if (odalar.has(eski.kod)) yayinla(eski);
+        }
+        if (odalar.size >= ODA_SINIRI) return json(yanit, 503, { hata: 'Sunucu şu an çok dolu, biraz sonra dene' });
         const oda = odaKur(id, ad);
         return json(yanit, 200, { kod: oda.kod });
       }
+      if (yol === '/api/katil' && katilHataSay(id).length >= 20) return json(yanit, 429, { hata: 'Çok fazla yanlış oda kodu, biraz sonra dene' });
       const oda = odalar.get(String(v.kod || '').toUpperCase());
-      if (!oda) return json(yanit, 404, { hata: 'Bu kodla bir oda yok' });
+      if (!oda) {
+        if (yol === '/api/katil') katilHataSay(id).push(Date.now());
+        return json(yanit, 404, { hata: 'Bu kodla bir oda yok' });
+      }
 
       if (yol === '/api/katil') {
         const i = sira(oda, id);
@@ -369,6 +427,7 @@ const sunucu = http.createServer(async (istek, yanit) => {
     }
     return json(yanit, 404, { hata: 'Yok' });
   } catch (e) {
+    if (e && e.kod && !yanit.headersSent) return json(yanit, e.kod, { hata: e.message });
     console.error(e);
     if (!yanit.headersSent) json(yanit, 500, { hata: 'Sunucu hatası' });
   }

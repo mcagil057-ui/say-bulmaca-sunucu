@@ -47,7 +47,10 @@ async function depoAc(adres) {
   let havuz, tur;
   if (adres) {
     const { Pool } = require('pg');
-    havuz = new Pool({ connectionString: adres, ssl: { rejectUnauthorized: false }, max: 5, idleTimeoutMillis: 30000 });
+    // Neon'un sertifikası doğrulanır (araya giren sahte sunucuya bağlanılmasın)
+    const u = new URL(adres);
+    u.searchParams.delete('sslmode'); u.searchParams.delete('channel_binding');
+    havuz = new Pool({ connectionString: u.toString(), ssl: { rejectUnauthorized: true }, max: 5, idleTimeoutMillis: 30000 });
     tur = 'postgres';
   } else {
     const { newDb } = require('pg-mem');
@@ -76,7 +79,10 @@ async function depoAc(adres) {
     // ---- oturumlar (anahtar = oturum kodunun özeti; kodun kendisi saklanmaz)
     async oturumEkle(anahtar, hesapId, zaman) { await q('INSERT INTO oturumlar (anahtar, hesap_id, olusturma) VALUES ($1, $2, $3)', [anahtar, hesapId, zaman]); },
     async oturumHesap(anahtar) {
-      return hesapYap((await q('SELECT h.* FROM oturumlar o JOIN hesaplar h ON h.id = o.hesap_id WHERE o.anahtar = $1', [anahtar]))[0]);
+      const r = (await q('SELECT h.*, o.olusturma AS oturum_zamani FROM oturumlar o JOIN hesaplar h ON h.id = o.hesap_id WHERE o.anahtar = $1', [anahtar]))[0];
+      const h = hesapYap(r);
+      if (h) h.oturumZamani = sayi(r.oturum_zamani);
+      return h;
     },
     async oturumSil(anahtar) { await q('DELETE FROM oturumlar WHERE anahtar = $1', [anahtar]); },
 
@@ -103,7 +109,17 @@ async function depoAc(adres) {
       await q(`INSERT INTO giris_kodlari (mail, kod, bitis, deneme, gonderim) VALUES ($1, $2, $3, 0, $4)
                ON CONFLICT (mail) DO UPDATE SET kod = EXCLUDED.kod, bitis = EXCLUDED.bitis, deneme = 0, gonderim = EXCLUDED.gonderim`, [mail, kod, bitis, zaman]);
     },
-    async kodDeneme(mail) { await q('UPDATE giris_kodlari SET deneme = deneme + 1 WHERE mail = $1', [mail]); },
+    /**
+     * Bir deneme hakkını TEK ADIMDA kullan: hak kaldıysa ve süre dolmadıysa
+     * sayacı artırıp kodun özetini döner, yoksa null. Aynı anda gelen
+     * tahminler sırayla hak düşer; 5'ten fazlası hiç kontrol edilmez.
+     */
+    async kodHakKullan(mail, simdi) {
+      const r = (await q(`UPDATE giris_kodlari SET deneme = deneme + 1
+                          WHERE mail = $1 AND deneme < 5 AND bitis > $2 RETURNING kod, deneme`, [mail, simdi]))[0];
+      return r ? { kod: r.kod, deneme: Number(r.deneme) } : null;
+    },
+    async kodIade(mail) { await q('UPDATE giris_kodlari SET deneme = deneme - 1 WHERE mail = $1 AND deneme > 0', [mail]); },
     async kodSil(mail) { await q('DELETE FROM giris_kodlari WHERE mail = $1', [mail]); },
 
     // ---- günün bulmacası
