@@ -484,3 +484,13 @@ canvas.konfeti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer
 .ist-liste li.tiklanir { cursor: pointer; }
 
 .defter.izle-coklu { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+
+/* ---------- rozetler ---------- */
+.rozet-liste { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.rozet-satir { display: flex; gap: 10px; align-items: center; }
+.rozet-buyuk { font-size: 34px; width: 42px; text-align: center; flex: none; }
+.rozet-bilgi { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.rozet-bilgi b { font-size: 15px; }
+.rozet-bilgi small { font-size: 12.5px; }
+.rozet-cubuk { height: 7px; border-radius: 4px; background: var(--kagit); overflow: hidden; }
+.rozet-cubuk i { display: block; height: 100%; background: var(--murekkep); border-radius: 4px; }

@@ -52,7 +52,7 @@ function rekorHTML() {
   else if (!r.liste.length) ic = '<p class="not">Henüz rekor yok. Arkadaşlarınla bir yarış oyna, ilk rekoru sen kır!</p>';
   else ic = `<ol class="sir-liste">${r.liste.map((x, i) => `<li class="${x.ben ? 'ben' : ''}">
       <span class="an-no">${i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1}</span>
-      <span class="sir-ad">${esc(x.ad)}${x.ben ? ' <small>(sen)</small>' : ''}<small> · ${x.kisi} kişilik</small></span>
+      <span class="sir-ad">${x.rozet ? x.rozet + ' ' : ''}${esc(x.ad)}${x.ben ? ' <small>(sen)</small>' : ''}<small> · ${x.kisi} kişilik</small></span>
       <b>${sureYazi(x.sure)} <small>${x.soru} soru</small></b></li>`).join('')}</ol>`;
   return `<div class="modal"><h2>🏁 Yarış rekorları</h2>
     <div class="secenekler genis">${sekme}</div>
@@ -814,7 +814,7 @@ function lobiCiz(d) {
   const yaris = o.ayar.oyunTuru === 'yaris';
   const kap = yaris ? 4 : 2;
   const oyuncular = o.oyuncular.map((x, i) =>
-    `<li><span class="nokta ${x.bagli ? 'acik' : ''}"></span>${esc(x.ad)}${x.ben ? ' <small>(sen)</small>' : ''}${i === 0 ? ' <small class="rozet">kurucu</small>' : ''}</li>`).join('')
+    `<li><span class="nokta ${x.bagli ? 'acik' : ''}"></span>${x.rozet ? x.rozet + ' ' : ''}${esc(x.ad)}${x.ben ? ' <small>(sen)</small>' : ''}${i === 0 ? ' <small class="rozet">kurucu</small>' : ''}</li>`).join('')
     + (o.oyuncular.length < kap ? `<li class="bekle"><span class="nokta"></span>${rakip ? `Başka oyuncu girebilir (${o.oyuncular.length}/${kap})` : 'Rakip bekleniyor…'}</li>` : '');
   const basla = o.kurucuBen
     ? `<button class="dugme ana" data-e="basla" ${rakip ? '' : 'disabled'}>${rakip ? 'Oyunu başlat' : 'Rakip bekleniyor…'}</button>`
@@ -921,9 +921,9 @@ function oyunCiz(d) {
   return `<section class="oyun ${bitti ? 'bitti' : ''}">
     <header class="oyun-ust ${d.sohbet ? 'sohbetli' : ''}">
       <button class="geri-ok" data-e="menuAc" aria-label="Menü">⋯</button>
-      <div class="kisi ben"><span class="isim">${esc(m.ben.ad)}${skorRozet(d, true)}</span>${haklar(m.ben.yanlis, a.yanlisHak, a.otoCevap)}</div>
+      <div class="kisi ben"><span class="isim">${adRozet(d, true)}${esc(m.ben.ad)}${skorRozet(d, true)}</span>${haklar(m.ben.yanlis, a.yanlisHak, a.otoCevap)}</div>
       <div class="sure" id="sure"><span id="sure-sayi"></span><i id="sure-cubuk"></i></div>
-      <div class="kisi rakip"><span class="isim">${skorRozet(d, false)}${esc(m.rakip.ad)}${rakipBagli(d) ? '' : ' <small class="kopuk">(koptu)</small>'}</span>${haklar(m.rakip.yanlis, a.yanlisHak, a.otoCevap)}</div>
+      <div class="kisi rakip"><span class="isim">${skorRozet(d, false)}${adRozet(d, false)}${esc(m.rakip.ad)}${rakipBagli(d) ? '' : ' <small class="kopuk">(koptu)</small>'}</span>${haklar(m.rakip.yanlis, a.yanlisHak, a.otoCevap)}</div>
       ${d.sohbet ? sohbetDugme(d) : ''}
     </header>
     <div class="durum-serit ${hamleBende(d) ? 'sende' : ''}">${durumYazi}</div>
@@ -944,6 +944,12 @@ function oyunCiz(d) {
     ${bitti ? sonucSerit(m) : eylemAlani(m)}
     ${baglantiUyari()}
   </section>`;
+}
+
+/** Oyuncunun en yüksek rozet simgesi (oda listesinden). */
+function adRozet(d, ben) {
+  const x = (d.oda.oyuncular || []).find(o => !!o.ben === ben);
+  return x && x.rozet ? x.rozet + ' ' : '';
 }
 
 function skorRozet(d, ben) {
@@ -1149,8 +1155,9 @@ function yarisSkorHTML(d) {
 
 function yarisCiz(d) {
   const m = d.mac, a = m.ayar, bitti = m.faz === 'bitti';
+  const rozetAd = ad => { const x = (d.oda.oyuncular || []).find(p => p.ad === ad); return x && x.rozet ? x.rozet + ' ' : ''; };
   const kisiler = m.oyuncular.map(o => `<span class="yaris-kisi ${o.ben ? 'ben' : ''} ${o.cekildi ? 'cekildi' : ''}">
-      ${esc(o.ad)}${o.ben ? ' <small>(sen)</small>' : ''} · <b>${o.soru}</b> soru</span>`).join('');
+      ${rozetAd(o.ad)}${esc(o.ad)}${o.ben ? ' <small>(sen)</small>' : ''} · <b>${o.soru}</b> soru</span>`).join('');
   let durumYazi;
   if (bitti) durumYazi = m.sonuc.kazanan === 'ben' ? `Buldun! ${sureYazi(m.sonuc.sure)}` : m.sonuc.kazanan ? `${esc(m.sonuc.kazanan)} buldu (${sureYazi(m.sonuc.sure)})` : 'Kimse bulamadı';
   else if (m.ben.cekildi) durumYazi = 'Yarıştan çekildin, diğerleri devam ediyor';

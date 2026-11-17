@@ -124,6 +124,20 @@ function istemci(cihaz, ad) {
   await ali.post('/api/eylem', { kod: oda4.kod, tur: 'teslim' });
   const izBitti = (await izleyen.get(`/api/bekle?kod=${oda4.kod}&surum=-1`)).durum;
   esit([izBitti.mac.faz, izBitti.mac.oyuncular.map(p => p.gizli)], ['bitti', ['123', '456']], 'oyun bitince izleyici sayıları görür');
+  // Rozet sayımı: sunucu maçları sayar, bot maçı bildirimi bir kez sayılır, günlük seri
+  const aliIst = (await ali.get('/api/ben')).istat;
+  esit([aliIst.mac, aliIst.galibiyet, aliIst.gunlukCozum, aliIst.seri, aliIst.enUzunSeri], [3, 0, 1, 1, 1], 'maçlar (2 yarış + 1 pes) ve günlük seri sayıldı');
+  const canIst = (await can.get('/api/ben')).istat;
+  esit([canIst.yarisGalibiyet, canIst.galibiyet], [2, 2], 'yarış galibiyetleri sayıldı');
+  const b1 = await veli.post('/api/sonuc', { macId: 'botmac1', kazandi: true });
+  const b2 = await veli.post('/api/sonuc', { macId: 'botmac1', kazandi: true });
+  esit([b1.istat.galibiyet, b2.istat.galibiyet], [1, 1], 'aynı bot maçı iki kez sayılmaz');
+  esit((await veli.post('/api/sonuc', { macId: 'botmac2', kazandi: true })).durum, 429, 'bot maçı bildirimi sınırlı');
+  const odaR = await ali.post('/api/oda');
+  await can.post('/api/katil', { kod: odaR.kod });
+  const odaGor = (await can.get(`/api/bekle?kod=${odaR.kod}&surum=-1`)).durum.oda.oyuncular;
+  esit(odaGor.every(o => 'rozet' in o), true, 'odada adların yanında rozet alanı var');
+
   sunucu.kill();
   console.log(hata ? `\n${hata} HATA` : '\nMisafir denetimleri geçti');
   process.exit(hata ? 1 : 0);

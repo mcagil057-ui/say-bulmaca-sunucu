@@ -41,6 +41,16 @@ CREATE TABLE IF NOT EXISTS gunluk (
   cozuldu BIGINT,
   PRIMARY KEY (gun, hesap_id)
 );
+CREATE TABLE IF NOT EXISTS istatistik (
+  hesap_id INTEGER PRIMARY KEY,
+  mac INTEGER NOT NULL,
+  galibiyet INTEGER NOT NULL,
+  yaris_galibiyet INTEGER NOT NULL,
+  gunluk_cozum INTEGER NOT NULL,
+  seri INTEGER NOT NULL,
+  en_uzun_seri INTEGER NOT NULL,
+  gunluk_son TEXT
+);
 CREATE TABLE IF NOT EXISTS meydan (
   id TEXT PRIMARY KEY,
   sahip_id INTEGER NOT NULL,
@@ -86,6 +96,11 @@ async function depoAc(adres) {
   for (const komut of TABLOLAR.split(';').map(x => x.trim()).filter(Boolean)) await havuz.query(komut);
   const q = async (sql, p) => (await havuz.query(sql, p)).rows;
   const sayi = r => (r == null ? r : Number(r));
+  const istatYap = r => ({
+    mac: r ? Number(r.mac) : 0, galibiyet: r ? Number(r.galibiyet) : 0, yarisGalibiyet: r ? Number(r.yaris_galibiyet) : 0,
+    gunlukCozum: r ? Number(r.gunluk_cozum) : 0, seri: r ? Number(r.seri) : 0, enUzunSeri: r ? Number(r.en_uzun_seri) : 0,
+    gunlukSon: r ? r.gunluk_son : null,
+  });
   const hesapYap = r => r && { id: Number(r.id), mail: r.mail, ad: r.ad, adDegisti: sayi(r.ad_degisti), olusturma: sayi(r.olusturma) };
 
   return {
@@ -158,6 +173,26 @@ async function depoAc(adres) {
                ON CONFLICT (gun, hesap_id) DO UPDATE SET tahminler = EXCLUDED.tahminler, cozuldu = EXCLUDED.cozuldu`,
         [gun, hesapId, JSON.stringify(tahminler), cozuldu]);
     },
+    // ---- istatistik (rozetler için)
+    async istatAl(hesapId) {
+      const r = (await q('SELECT * FROM istatistik WHERE hesap_id = $1', [hesapId]))[0];
+      return istatYap(r);
+    },
+    async istatlar(ids) {
+      if (!ids.length) return new Map();
+      const yer = ids.map((_, i) => '$' + (i + 1)).join(', ');
+      const m = new Map(ids.map(id => [id, istatYap(null)]));
+      for (const r of await q(`SELECT * FROM istatistik WHERE hesap_id IN (${yer})`, ids)) m.set(Number(r.hesap_id), istatYap(r));
+      return m;
+    },
+    async istatYaz(hesapId, i) {
+      await q(`INSERT INTO istatistik (hesap_id, mac, galibiyet, yaris_galibiyet, gunluk_cozum, seri, en_uzun_seri, gunluk_son)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               ON CONFLICT (hesap_id) DO UPDATE SET mac = EXCLUDED.mac, galibiyet = EXCLUDED.galibiyet, yaris_galibiyet = EXCLUDED.yaris_galibiyet,
+                 gunluk_cozum = EXCLUDED.gunluk_cozum, seri = EXCLUDED.seri, en_uzun_seri = EXCLUDED.en_uzun_seri, gunluk_son = EXCLUDED.gunluk_son`,
+        [hesapId, i.mac, i.galibiyet, i.yarisGalibiyet, i.gunlukCozum, i.seri, i.enUzunSeri, i.gunlukSon]);
+    },
+
     // ---- meydan okuma
     async meydanEkle(id, sahipId, gizli, basamak, zaman) {
       await q('INSERT INTO meydan (id, sahip_id, gizli, basamak, olusturma) VALUES ($1, $2, $3, $4, $5)', [id, sahipId, gizli, basamak, zaman]);

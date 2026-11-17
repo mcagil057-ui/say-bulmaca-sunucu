@@ -99,6 +99,14 @@ const y2 = new O.Yaris({}, [{ id: 'a', ad: 'A' }, { id: 'b', ad: 'B' }]);
 y2.cekil('a'); y2.cekil('b');
 esit([y2.faz, y2.sonuc.kazanan], ['bitti', null], 'yarış: herkes çekilirse kazanan yok');
 
+// Rozetler: 10 Bronz, 50 Gümüş, 100 Altın, 250 Elmas, 500 Efsane
+const R = require('./public/rozet.js');
+esit([R.seviye(9), R.seviye(10), R.seviye(49), R.seviye(50), R.seviye(500)], [-1, 0, 0, 1, 4], 'rozet basamakları');
+const rz = R.rozetler({ galibiyet: 12, mac: 60, enUzunSeri: 0, yarisGalibiyet: 0 });
+esit([rz[0].rozet.ad, rz[0].kalan, rz[1].rozet.ad, rz[2].rozet], ['Bronz', 38, 'Gümüş', null], 'rozet durumu ve kalan');
+esit(R.enIyi({ galibiyet: 12, mac: 60 }), '🥈', 'adın yanındaki en iyi rozet');
+esit(R.enIyi({}), '', 'rozet yoksa boş');
+
 // Botlar: kaç soruda buluyorlar?
 function botOlc(seviye, ayar, n) {
   ayar = O.ayarDuzelt(ayar);

@@ -32,11 +32,48 @@ const Istat = {
 function bugunTR(fark) { return new Date(Date.now() + 3 * 3600 * 1000 + (fark || 0) * 86400000).toISOString().slice(0, 10); }
 
 /** Biten bir maçı istatistiğe yaz (aynı maç iki kez yazılmaz). */
+/*
+ * Rozetler: sayılar sunucuda (rozet.js). Telefon yalnızca hangi rozetleri
+ * daha önce gördüğünü saklar; yeni biri gelince haber verir.
+ */
+function rozetKontrol(istat) {
+  if (!istat) return;
+  S.istat = istat;
+  const simdi = Rozet.kazanilanlar(istat);
+  const once = jsonAl('sb_rozetler', null);
+  depo.koy('sb_rozetler', JSON.stringify(simdi));
+  if (!once) return;   // ilk kez: eski rozetler için bildirim yok
+  const yeni = simdi.filter(k => once.indexOf(k) < 0);
+  if (!yeni.length) return;
+  const [dal, sv] = yeni[yeni.length - 1].split(':');
+  const d = Rozet.DALLAR.find(x => x.anahtar === dal), r = Rozet.SEVIYELER[+sv];
+  setTimeout(() => { bildir(`${r.simge} Yeni rozet: ${r.ad} ${d.ad}!`, 'iyi'); Ses.cal('kazandin'); konfeti(); }, 1200);
+}
+/** Sunucudan güncel sayıları al (maç bitince, bulmaca çözülünce, profil açılınca). */
+async function istatYenile() {
+  try {
+    const r = await fetch(API + '/api/ben', { headers: basliklar(), cache: 'no-store' });
+    if (r.ok) rozetKontrol((await r.json()).istat);
+  } catch (e) { /* çevrimdışı */ }
+}
+
+function rozetlerHTML() {
+  if (!S.istat) return '<div class="kart"><label>Rozetlerim</label><p class="not kucuk sol">Yükleniyor…</p></div>';
+  const l = Rozet.rozetler(S.istat).map(r => `<li class="rozet-satir">
+      <span class="rozet-buyuk">${r.rozet ? r.rozet.simge : '⚪'}</span>
+      <div class="rozet-bilgi"><b>${r.simge} ${r.ad} ${r.rozet ? `· ${r.rozet.ad}` : ''}</b>
+        <small>${r.n} ${r.birim}${r.sonraki ? ` · ${r.sonraki.simge} ${r.sonraki.ad} için ${r.kalan} kaldı` : ' · en üst rozet!'}</small>
+        <span class="rozet-cubuk"><i style="width:${Math.round(r.oran * 100)}%"></i></span></div></li>`).join('');
+  return `<div class="kart"><label>Rozetlerim</label><ul class="rozet-liste">${l}</ul>
+    <p class="not kucuk sol">${Rozet.SEVIYELER.map(s => `${s.simge} ${s.n}`).join(' · ')} — galibiyet, maç, günlük seri ve yarış dallarında. Adının yanında en yüksek rozetin görünür.</p></div>`;
+}
+
 function macKaydet(d) {
   const m = d.mac;
   if (!m || m.faz !== 'bitti' || !m.sonuc) return;
   const N = m.ayar.basamak;
   if (m.tur === 'yaris') {
+    if (!d.oda.bot && !Istat.liste().some(x => x.id === m.id)) setTimeout(istatYenile, 1500);
     Istat.kaydet({
       id: m.id, t: Date.now(), tur: d.oda.bot ? 'bot' : 'oda', seviye: null,
       rakip: d.oda.bot ? `Yarış (${m.oyuncular.length - 1} bot)` : `Yarış (${m.oyuncular.length} kişi)`,
@@ -46,6 +83,10 @@ function macKaydet(d) {
     return;
   }
   const benim = m.sorularim.filter(k => k.tahmin);
+  // Bot maçını rozet sayımı için sunucuya bildir (arkadaş maçlarını sunucu kendisi sayar)
+  if (d.oda.bot && !Istat.liste().some(x => x.id === m.id)) {
+    istek('/api/sonuc', { macId: m.id, kazandi: m.sonuc.kazanan === 'ben' }).then(r => rozetKontrol(r.istat)).catch(() => null);
+  } else if (!d.oda.bot && !Istat.liste().some(x => x.id === m.id)) setTimeout(istatYenile, 1500);
   Istat.kaydet({
     id: m.id, t: Date.now(),
     tur: d.oda.bot ? 'bot' : 'oda', seviye: d.oda.bot || null, rakip: m.rakip.ad,
@@ -115,11 +156,11 @@ function profilCiz() {
     if (son) ic += `<div class="kart"><label>Son maçlar</label><ul class="ist-liste">${son}</ul></div>`;
     ic += '<button class="dugme ince" data-e="istatSifirla">İstatistikleri sıfırla</button>';
   }
-  return `<section class="profil">${ust}${hesap}${ic}</section>`;
+  return `<section class="profil">${ust}${hesap}${rozetlerHTML()}${ic}</section>`;
 }
 
 const PROFIL_EYLEM = {
-  profilAc() { S.alt = 'profil'; ciz(); window.scrollTo(0, 0); },
+  profilAc() { S.alt = 'profil'; ciz(); window.scrollTo(0, 0); istatYenile().then(() => { if (S.alt === 'profil') ciz(); }); },
   istatSifirla() {
     if (!confirm('Bütün istatistiklerin silinsin mi? Geri alınamaz.')) return;
     Istat.sifirla(); ciz();

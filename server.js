@@ -31,6 +31,7 @@ const Gunluk = require('./gunluk-sunucu.js');
 const { depoAc } = require('./depo.js');
 const { hesapModulu, yereldenMi, postaDurumu } = require('./hesap.js');
 const { meydanModulu } = require('./meydan-sunucu.js');
+const Rozet = require('./public/rozet.js');
 let Hesap, GunlukOyun, Meydan, DEPO_TURU, DEPO; // depo açılınca kurulur (aşağıda)
 /*
  * Mail ile giriş açık mı? Render'da MAIL_GIRIS=1 ise açık (hesap + kod +
@@ -115,13 +116,14 @@ function odaKur(id, ad) {
 function sira(oda, id) { return oda.oyuncular.findIndex(o => o.id === id); }
 
 const IZLEYICI_SINIRI = 10;
+const botSonuc = new Map();   // hesap no -> {son, idler} (bot maçı bildirimleri)
 
 /** İzleyicinin göreceği durum (oynayamaz, yalnızca sohbete yazabilir). */
 function izleyiciDurum(oda, z) {
   return {
     oda: {
       kod: oda.kod, ayar: oda.ayar, kurucuBen: false, izleyici: true, macNo: oda.macSayisi,
-      oyuncular: oda.oyuncular.map(o => ({ ad: o.ad, bagli: bagliMi(o), ben: false, galibiyet: oda.skor[o.id] || 0, yaziyor: o.yaziyor || 0 })),
+      oyuncular: oda.oyuncular.map(o => ({ ad: o.ad, rozet: rozetSimge(o.id), bagli: bagliMi(o), ben: false, galibiyet: oda.skor[o.id] || 0, yaziyor: o.yaziyor || 0 })),
       izleyiciSayisi: oda.izleyiciler.length, berabere: oda.berabere, faz: oda.mac ? 'mac' : 'lobi',
     },
     sohbet: oda.sohbet.map(x => ({ no: x.no, ad: x.ad, metin: x.metin, ben: x.id === z.id })),
@@ -145,7 +147,7 @@ function durum(oda, i) {
       ayar: oda.ayar,
       kurucuBen: i === 0,
       macNo: oda.macSayisi,
-      oyuncular: oda.oyuncular.map((o, k) => ({ ad: o.ad, bagli: bagliMi(o), ben: k === i, galibiyet: oda.skor[o.id] || 0, yaziyor: o.yaziyor || 0 })),
+      oyuncular: oda.oyuncular.map((o, k) => ({ ad: o.ad, rozet: rozetSimge(o.id), bagli: bagliMi(o), ben: k === i, galibiyet: oda.skor[o.id] || 0, yaziyor: o.yaziyor || 0 })),
       berabere: oda.berabere,
       faz: oda.mac ? 'mac' : 'lobi',
     },
@@ -164,10 +166,67 @@ function cevapla(oda, id, yanit) {
 
 /** Odada bir şey değişti: bekleyen bütün telefonlara yeni durumu gönder. */
 /** Biten maçı oda skoruna bir kez yaz. */
+// ------------------------------------------------------------------ istatistik ve rozetler
+/*
+ * Maç, galibiyet, yarış galibiyeti ve günlük seri sunucuda sayılır (rozetler
+ * için). Arkadaşla oynananları sunucu kendisi sayar; bot maçlarını telefon
+ * bildirir (/api/sonuc). Rozet simgesi oyuncu adlarının yanında görünür.
+ */
+const istatBellek = new Map();   // hesap no -> istatistik
+const hesapNo = oyuncuId => Number(String(oyuncuId).slice(1)) || null;   // "h12" -> 12
+async function istatYukle(hid) {
+  if (!istatBellek.has(hid)) istatBellek.set(hid, await DEPO.istatAl(hid));
+  return istatBellek.get(hid);
+}
+async function istatArtir(hid, ek) {
+  const i = Object.assign({}, await istatYukle(hid));
+  for (const k of Object.keys(ek)) i[k] += ek[k];
+  await DEPO.istatYaz(hid, i);
+  istatBellek.set(hid, i);
+  return i;
+}
+/** Bulmaca ilk kez çözülünce: dün de çözdüyse seri +1, yoksa 1. */
+async function istatGunluk(hesap, gun) {
+  const i = Object.assign({}, await istatYukle(hesap.id));
+  if (i.gunlukSon === gun) return i;
+  const dun = new Date(Date.parse(gun + 'T00:00:00Z') - 24 * 3600 * 1000).toISOString().slice(0, 10);
+  i.seri = i.gunlukSon === dun ? i.seri + 1 : 1;
+  i.enUzunSeri = Math.max(i.enUzunSeri, i.seri);
+  i.gunlukCozum += 1; i.gunlukSon = gun;
+  await DEPO.istatYaz(hesap.id, i);
+  istatBellek.set(hesap.id, i);
+  return i;
+}
+function rozetSimge(oyuncuId) { const i = istatBellek.get(hesapNo(oyuncuId)); return i ? Rozet.enIyi(i) : ''; }
+async function rozetBul(ids) {
+  const eksik = ids.filter(id => !istatBellek.has(id));
+  if (eksik.length) for (const [id, i] of await DEPO.istatlar(eksik)) istatBellek.set(id, i);
+  return new Map(ids.map(id => [id, Rozet.enIyi(istatBellek.get(id))]));
+}
+/** Biten çevrimiçi maçı istatistiğe yaz, sonra güncel rozetleri yayınla. */
+function istatMac(oda) {
+  const m = oda.mac;
+  if (!DEPO || !m) return;
+  const isler = [];
+  if (m.tur === 'yaris') {
+    for (const o of m.oyuncular) {
+      const hid = hesapNo(o.id), kazandi = m.kazanan === o.id ? 1 : 0;
+      if (hid) isler.push(istatArtir(hid, { mac: 1, galibiyet: kazandi, yarisGalibiyet: kazandi }));
+    }
+  } else {
+    oda.oyuncular.slice(0, 2).forEach((o, p) => {
+      const hid = hesapNo(o.id);
+      if (hid) isler.push(istatArtir(hid, { mac: 1, galibiyet: m.sonuc.kazanan === p ? 1 : 0 }));
+    });
+  }
+  Promise.all(isler).then(() => { if (odalar.has(oda.kod)) yayinla(oda); }).catch(e => console.error('İstatistik yazılamadı', e.message));
+}
+
 function skorIsle(oda) {
   const m = oda.mac;
   if (!m || m.faz !== 'bitti' || m.skorlandi) return;
   m.skorlandi = true;
+  istatMac(oda);
   if (m.tur === 'yaris') {   // yarışta kazanan kimlikle tutulur
     if (m.kazanan != null) {
       oda.skor[m.kazanan] = (oda.skor[m.kazanan] || 0) + 1;
@@ -288,7 +347,10 @@ function eylem(oda, i, v) {
     }
     case 'ayril': {
       const yaris = yarisMi(oda);
-      if (m && m.faz !== 'bitti') { if (yaris) m.cekil(oda.oyuncular[i].id); else m.teslim(i); }
+      if (m && m.faz !== 'bitti') {
+        if (yaris) m.cekil(oda.oyuncular[i].id);
+        else { m.teslim(i); skorIsle(oda); }   // çıkan kaybeder, kalan kazanır (istatistiğe yazılır)
+      }
       for (const b of oda.oyuncular[i].bekleyenler) { clearTimeout(b.saat); json(b.yanit, 404, { hata: 'Odadan çıktın' }); }
       oda.oyuncular.splice(i, 1);
       // Klasikte maç biter; yarışta kalanlar oynamaya devam eder
@@ -421,7 +483,9 @@ const sunucu = http.createServer(async (istek, yanit) => {
       return json(yanit, 200, { odalar: liste.slice(0, 20) });
     }
 
-    if (yol === '/api/ben') return json(yanit, 200, { hesap: Hesap.goster(hesap) });
+    if (yol === '/api/ben') return json(yanit, 200, { hesap: Hesap.goster(hesap), istat: await istatYukle(hesap.id) });
+    // Odaya girerken rozet bilgisi bellekte hazır olsun
+    if (yol === '/api/oda' || yol === '/api/katil' || yol === '/api/izle') await istatYukle(hesap.id).catch(() => null);
 
     // Meydan okuma
     if (yol === '/api/meydan' && istek.method === 'GET') {
@@ -439,7 +503,9 @@ const sunucu = http.createServer(async (istek, yanit) => {
         if (!e || r.sure < e.sure) enIyi.set(r.hesapId, r);
       }
       const liste = [...enIyi.values()].sort((a, b) => a.sure - b.sure || a.zaman - b.zaman)
-        .map(r => ({ ad: r.ad, sure: r.sure, soru: r.soru, kisi: r.kisi, zaman: r.zaman, ben: r.hesapId === hesap.id }));
+        .map(r => ({ ad: r.ad, hesapId: r.hesapId, sure: r.sure, soru: r.soru, kisi: r.kisi, zaman: r.zaman, ben: r.hesapId === hesap.id }));
+      const rz = await rozetBul(liste.map(x => x.hesapId));
+      liste.forEach(x => { x.rozet = rz.get(x.hesapId) || ''; delete x.hesapId; });
       return json(yanit, 200, { basamak, liste: liste.slice(0, 30), benim: liste.findIndex(x => x.ben) + 1 || null });
     }
 
@@ -479,6 +545,16 @@ const sunucu = http.createServer(async (istek, yanit) => {
         } catch (e) { if (!e.kod) throw e; return json(yanit, e.kod, { hata: e.message }); }
       }
 
+      // Bot maçının sonucu (telefon bildirir; aynı maç iki kez sayılmaz, 10 sn'de en çok bir)
+      if (yol === '/api/sonuc') {
+        const b = botSonuc.get(hesap.id) || { son: 0, idler: [] };
+        const macId = String(v.macId || '').slice(0, 20);
+        if (!macId || b.idler.includes(macId)) return json(yanit, 200, { istat: await istatYukle(hesap.id) });
+        if (Date.now() - b.son < 10000) return json(yanit, 429, { hata: 'Çok sık' });
+        b.son = Date.now(); b.idler.push(macId); if (b.idler.length > 50) b.idler.shift();
+        botSonuc.set(hesap.id, b);
+        return json(yanit, 200, { istat: await istatArtir(hesap.id, { mac: 1, galibiyet: v.kazandi ? 1 : 0 }) });
+      }
       if (yol === '/api/meydan/olustur') { const r = await Meydan.olustur(hesap, v); return json(yanit, r.hata ? r.kod : 200, r); }
       if (yol === '/api/meydan/sor') { const r = await Meydan.sor(hesap, v.id, v.tahmin); return json(yanit, r.hata ? r.kod : 200, r); }
 
@@ -594,7 +670,7 @@ depoAc(process.env.DATABASE_URL).then(depo => {
   DEPO = depo;
   Meydan = meydanModulu(depo);
   Hesap = hesapModulu(depo);
-  GunlukOyun = Gunluk.gunlukModulu(depo);
+  GunlukOyun = Gunluk.gunlukModulu(depo, rozetBul, istatGunluk);
   if (depo.tur === 'bellek') console.log('UYARI: DATABASE_URL yok, hesaplar bellekte (sunucu kapanınca silinir).');
   sunucu.listen(PORT, dinlemeBasladi);
 }).catch(e => { console.error('Veritabanı açılamadı:', e.message); process.exit(1); });

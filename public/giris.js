@@ -70,7 +70,7 @@ async function hesapDenetle() {
     // Sunucudaki adı al (yeni misafirse hesap şimdi açılır; ad alınmışsa "Oyuncu-1234" verilir)
     try {
       const r = await fetch(API + '/api/ben', { headers: basliklar(), cache: 'no-store' });
-      if (r.ok) { const h = (await r.json()).hesap; S.hesap.ad = h.ad; depo.koy('sb_ad', h.ad); }
+      if (r.ok) { const v = await r.json(); S.hesap.ad = v.hesap.ad; depo.koy('sb_ad', v.hesap.ad); rozetKontrol(v.istat); }
     } catch (e) { /* çevrimdışı: yerel adla devam */ }
     return true;
   }
@@ -79,7 +79,8 @@ async function hesapDenetle() {
     const r = await fetch(API + '/api/ben', { headers: basliklar(), cache: 'no-store' });
     if (r.status === 401) { girisGerekli(); return false; }
     if (!r.ok) throw new Error('Sunucu ' + r.status);
-    hesapKoy((await r.json()).hesap);
+    const v = await r.json();
+    hesapKoy(v.hesap); rozetKontrol(v.istat);
     return true;
   } catch (e) {
     // İnternet yok / sunucu uyanıyor: son bilinen hesapla devam (bot oynanabilir)

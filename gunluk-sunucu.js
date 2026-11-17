@@ -29,12 +29,18 @@ function gizli(gun) {
   return tum[h.readUInt32BE(0) % tum.length];
 }
 
-function gunlukModulu(depo) {
+/**
+ * rozetBul: async (hesap no listesi) -> Map(hesap no -> en iyi rozet simgesi)
+ * cozuldu: (hesap, gün) -> bulmaca ilk kez çözülünce çağrılır (günlük seri için)
+ */
+function gunlukModulu(depo, rozetBul, cozuldu) {
   async function durum(gun, hesap) {
     const g = gizli(gun);
     const benimki = await depo.gunlukAl(gun, hesap.id);
-    const cozenler = (await depo.gunlukCozenler(gun))
-      .map(x => ({ ad: x.ad, soru: x.soru, zaman: x.zaman, ben: x.hesapId === hesap.id }))
+    const ham = await depo.gunlukCozenler(gun);
+    const rozet = rozetBul ? await rozetBul(ham.map(x => x.hesapId)) : new Map();
+    const cozenler = ham
+      .map(x => ({ ad: x.ad, rozet: rozet.get(x.hesapId) || '', soru: x.soru, zaman: x.zaman, ben: x.hesapId === hesap.id }))
       .sort((a, b) => a.soru - b.soru || a.zaman - b.zaman);
     return {
       gun, basamak: AYAR.basamak, basSifir: AYAR.basSifir,
@@ -52,6 +58,7 @@ function gunlukModulu(depo) {
     if (!k.tahminler.includes(t)) k.tahminler.push(t);
     if (t === gizli(gun)) k.cozuldu = Date.now();
     await depo.gunlukKoy(gun, hesap.id, k.tahminler, k.cozuldu);
+    if (k.cozuldu && cozuldu) await cozuldu(hesap, gun);
     return durum(gun, hesap);
   }
 

@@ -74,7 +74,7 @@ function gunlukCiz() {
 
 function siralamaHTML() {
   const g = S.g;
-  const l = (g.siralama || []).map((x, i) => `<li class="${x.ben ? 'ben' : ''}"><span class="an-no">${i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1}</span><span class="sir-ad">${esc(x.ad)}${x.ben ? ' <small>(sen)</small>' : ''}</span><b>${x.soru} soru</b></li>`).join('');
+  const l = (g.siralama || []).map((x, i) => `<li class="${x.ben ? 'ben' : ''}"><span class="an-no">${i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1}</span><span class="sir-ad">${x.rozet ? x.rozet + ' ' : ''}${esc(x.ad)}${x.ben ? ' <small>(sen)</small>' : ''}</span><b>${x.soru} soru</b></li>`).join('');
   return `<div class="modal"><h2>Bugünün sıralaması</h2>
     <p>${gunYazi(g.gun)} · ${g.toplam} kişi çözdü</p>
     <ol class="sir-liste">${l || '<li class="bos">Henüz çözen yok. İlk sen ol!</li>'}</ol>
@@ -107,6 +107,7 @@ const GUNLUK_EYLEM = {
       if (gunlukBitti()) {
         Istat.gunlukKaydet(g.gun, g.tahminler.length);
         Ses.cal('kazandin'); titret([60, 60, 120]); konfeti();
+        setTimeout(istatYenile, 2500);   // günlük seri rozeti
         S.gSiralama = true;
       } else Ses.cal(k.arti + k.eksi === 0 ? 'sifir' : k.arti >= a.basamak - 1 ? 'yakin' : 'cevap');
     } catch (e) {
