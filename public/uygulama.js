@@ -520,7 +520,7 @@ function girisCiz() {
 
 function acikOdalarHTML() {
   const l = S.acikOdalar;
-  const baslik = '<label>Açık odalar <small>(30 sn\'de bir yenilenir)</small></label>';
+  const baslik = '<label>Açık odalar <small class="canli">● canlı</small></label>';
   if (!l.length) return baslik + '<p class="not kucuk sol">Şu an rakip bekleyen oda yok.</p>';
   return baslik + '<ul class="oda-listesi">' + l.map(o => `<li>
       <div><b>${esc(o.ad)}</b><small>${o.basamak} basamak · ${o.turSure ? o.turSure + ' sn' : 'süresiz'}</small></div>
@@ -538,7 +538,7 @@ async function acikOdalariYenile() {
   const k = document.getElementById('acik-odalar');
   if (k && !S.kaynak && !S.alt) k.innerHTML = acikOdalarHTML();
 }
-setInterval(acikOdalariYenile, 30000); // açık odalar 30 saniyede bir yenilenir
+setInterval(acikOdalariYenile, 3000); // açık odalar 3 saniyede bir yenilenir
 
 function lobiCiz(d) {
   const o = d.oda;
