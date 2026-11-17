@@ -60,6 +60,9 @@ ağın adı → **Özel ağ** seç.
 
 ## Render'a yükleme
 
+Servis `main` dalına her gönderimde (push) kendiliğinden yeniden yayınlanır
+(Auto-Deploy: On Commit). Olmazsa: Render paneli → Manual Deploy → Deploy latest commit.
+
 1. Bu klasörü GitHub'da bir depoya gönder.
 2. render.com → New → Web Service → depoyu seç.
    Build command: boş (ya da `npm install`), Start command: `node server.js`,
