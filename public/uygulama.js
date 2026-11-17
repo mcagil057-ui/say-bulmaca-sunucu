@@ -43,7 +43,7 @@ const S = {
   botAyar: Oyun.ayarDuzelt(jsonAl('sb_botayar', {})),
   botMod: depo.al('sb_botmod', 'klasik'),        // 'klasik' (1 bot) | 'yaris' (1–3 bot)
   botYaris: jsonAl('sb_botyaris', { kolay: 0, orta: 1, zor: 0 }),
-  botHiz: depo.al('sb_bothiz', 'normal'),
+  botHiz: depo.al('sb_bothiz', 'uyumlu'),
   katilKod: '',
   acikOdalar: [],
   agAdres: null,             // aynı Wi-Fi'dakilerin açacağı adres
@@ -322,7 +322,9 @@ class YerelOda {
 class YerelYaris {
   constructor(seviyeler, ayar, hiz) {
     this.ayar = Oyun.ayarDuzelt(Object.assign({}, ayar, { oyunTuru: 'yaris' }));
-    this.hiz = hiz;
+    this.hiz = hiz;                 // 'uyumlu' | 'yavas' | 'normal' | 'hizli'
+    this.seviyeler = seviyeler.slice();
+    this.uyumNot = null;
     const say = {};
     this.botlar = seviyeler.map((sv, i) => {
       say[sv] = (say[sv] || 0) + 1;
@@ -339,6 +341,9 @@ class YerelYaris {
   sec(b, tur) { const l = BOT_KISILIK[b.seviye][tur]; return l[Math.floor(Math.random() * l.length)]; }
   yeniMac() {
     Object.values(this.botSaat).forEach(clearTimeout);
+    // Uyumlu hızda çarpan her yarışın başında güncel değerden alınır
+    this.carpan = this.hiz === 'uyumlu' ? uyumCarpani() : (BOT_HIZ.hiz[this.hiz] || 1);
+    this.uyumNot = null;
     this.macNo++;
     this.mac = new Oyun.Yaris(this.ayar, [{ id: 'ben', ad: adim() }].concat(this.botlar.map(b => ({ id: b.id, ad: b.ad }))));
     this.yayinla();
@@ -347,7 +352,7 @@ class YerelYaris {
   durum() {
     return {
       oda: {
-        kod: null, bot: 'yaris', ayar: this.ayar, kurucuBen: true, macNo: this.macNo, faz: 'mac', berabere: 0,
+        kod: null, bot: 'yaris', ayar: this.ayar, kurucuBen: true, macNo: this.macNo, faz: 'mac', berabere: 0, uyumNot: this.uyumNot,
         oyuncular: [{ ad: adim(), bagli: true, ben: true, galibiyet: this.skor.ben || 0 }]
           .concat(this.botlar.map(b => ({ ad: b.ad, bagli: true, ben: false, galibiyet: this.skor[b.id] || 0 }))),
       },
@@ -364,6 +369,14 @@ class YerelYaris {
     m.skorlandi = true;
     Object.values(this.botSaat).forEach(clearTimeout);
     if (m.kazanan) this.skor[m.kazanan] = (this.skor[m.kazanan] || 0) + 1;
+    if (this.hiz === 'uyumlu') {
+      // Botlar oyuncuya göre: kazandıysa hızlanır, kaybettiyse yavaşlar
+      const yeni = uyumHesapla(this.carpan, this.seviyeler, this.ayar.basamak, m.kazanan === 'ben', m.sonuc.sure);
+      depo.koy('sb_uyum', String(yeni));
+      const yuzde = Math.round(Math.abs(this.carpan / yeni - 1) * 100);
+      this.uyumNot = yeni < this.carpan ? `⚡ Bir sonraki yarışta botlar %${yuzde} hızlanıyor`
+        : yeni > this.carpan ? `🐢 Bir sonraki yarışta botlar %${yuzde} yavaşlıyor` : null;
+    }
     if (m.kazanan === 'ben') this.botYaz(this.rastgeleBot(), 'kaybettim', 900);
     else if (m.kazanan) this.botYaz(this.botlar.find(b => b.id === m.kazanan), 'buldum', 900);
   }
@@ -380,7 +393,7 @@ class YerelYaris {
       if (m.faz === 'oyun' && son && son.arti >= m.ayar.basamak - 1 && Math.random() < 0.35) this.botYaz(b, 'benYakin');
       this.yayinla();
       this.botPlanla(b, false);
-    }, botDusunmeSuresi(b.seviye, m.ayar.basamak, this.hiz, ilk));
+    }, botDusunmeSuresi(b.seviye, m.ayar.basamak, this.carpan, ilk));
   }
   /** tur: kişilik satırı türü ya da hazır metin. */
   botYaz(b, tur, gecikme) {
@@ -414,6 +427,10 @@ class YerelYaris {
     this.yayinla();
   }
   kapat() {
+    // Yarış ortasında çıkmak uyumlu hızda kayıp sayılır (botlar yavaşlar)
+    if (this.mac.faz === 'oyun' && this.hiz === 'uyumlu' && !this.kapandi) {
+      depo.koy('sb_uyum', String(uyumHesapla(this.carpan, this.seviyeler, this.ayar.basamak, false, 0)));
+    }
     this.kapandi = true;
     Object.values(this.botSaat).forEach(clearTimeout);
     this.saatler.forEach(clearTimeout);
@@ -630,7 +647,7 @@ function girisCiz() {
       }).join('')}</div>
       <div class="ayarlar">
         <div class="ayar"><span>Bot hızı</span><div class="secenekler genis">${Object.keys(BOT_HIZ.hiz).map(h => `<button class="sec ${S.botHiz === h ? 'secili' : ''}" data-e="botHiz" data-v="${h}">${BOT_HIZ.ad[h]}</button>`).join('')}</div>
-          <small class="sol">Normal hızda 3 basamakta ortalama: 🐣 Ali ~2,5 dk · 🦊 Kemal ~1 dk 45 sn · 🧠 Ayşe ~1 dk</small></div>
+          <small class="sol">${S.botHiz === 'uyumlu' ? uyumAciklama() : 'Normal hızda 3 basamakta ortalama: 🐣 Ali ~2,5 dk · 🦊 Kemal ~1 dk 45 sn · 🧠 Ayşe ~1 dk'}</small></div>
         <div class="ayar"><span>Basamak</span><div class="secenekler">${[3, 4, 5].map(b => secA('basamak', b, b)).join('')}</div></div>
         <div class="ayar"><span>Sayı 0 ile başlayabilir</span><div class="secenekler">${secA('basSifir', false, 'Hayır')}${secA('basSifir', true, 'Evet')}</div></div>
       </div>
@@ -671,6 +688,16 @@ function girisCiz() {
     ${hesapKarti()}
     ${alt}
   </section>`;
+}
+
+/** Uyumlu hızın şu anki durumu, düz Türkçe. */
+function uyumAciklama() {
+  const c = uyumCarpani();
+  const ayse = Math.round(botBeklenenSure('zor', S.botAyar.basamak || 3, c) / 1000);
+  const durum = Math.abs(c - 1) < 0.02 ? 'botlar normal hızda'
+    : c < 1 ? `botlar normalden %${Math.round((1 / c - 1) * 100)} hızlı` : `botlar normalden %${Math.round((1 - 1 / c) * 100)} yavaş`;
+  return `Uyumlu: sen kazandıkça botlar hızlanır, kaybettikçe yavaşlar. Şu an ${durum} (🧠 Ayşe ortalama ~${ayse} sn).
+    ${Math.abs(c - 1) < 0.02 ? '' : '<button class="sec ince-sec" data-e="uyumSifirla">Sıfırla</button>'}`;
 }
 
 function botModSecimi() {
@@ -1038,6 +1065,7 @@ function yarisSonucHTML(d) {
   return `<div class="modal sonuc ${s.kazanan === 'ben' ? 'ben' : 'rakip'}"><h2>${baslik}</h2><p>${neden}</p>
     <div class="karsilastir"><div><small>Aranan sayı</small>${sayiHTML(m.gizli, false)}</div></div>
     <ol class="sir-liste">${liste}</ol>
+    ${d.oda.uyumNot ? `<p class="uyum-not">${esc(d.oda.uyumNot)}</p>` : ''}
     ${yarisSkorHTML(d)}
     <button class="dugme ana" data-e="rovans">Rövanş</button>
     <button class="dugme" data-e="analizAc" data-v="ben">📈 Sorularımın analizi</button>
@@ -1126,7 +1154,8 @@ const EYLEM = {
     ciz();
   },
   botMod(v) { S.botMod = v === 'yaris' ? 'yaris' : 'klasik'; depo.koy('sb_botmod', S.botMod); ciz(); },
-  botHiz(v) { if (BOT_HIZ.hiz[v]) { S.botHiz = v; depo.koy('sb_bothiz', v); ciz(); } },
+  botHiz(v) { if (v in BOT_HIZ.hiz) { S.botHiz = v; depo.koy('sb_bothiz', v); ciz(); } },
+  uyumSifirla() { depo.koy('sb_uyum', '1'); bildir('Bot hızı normale döndü'); ciz(); },
   botSayi(v) {
     const [sv, d] = v.split(':');
     const y = Object.assign({}, S.botYaris);
