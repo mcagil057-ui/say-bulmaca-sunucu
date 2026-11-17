@@ -30,7 +30,8 @@ const Oyun = require('./public/oyun.js');
 const Gunluk = require('./gunluk-sunucu.js');
 const { depoAc } = require('./depo.js');
 const { hesapModulu, yereldenMi, postaDurumu } = require('./hesap.js');
-let Hesap, GunlukOyun, DEPO_TURU, DEPO; // depo açılınca kurulur (aşağıda)
+const { meydanModulu } = require('./meydan-sunucu.js');
+let Hesap, GunlukOyun, Meydan, DEPO_TURU, DEPO; // depo açılınca kurulur (aşağıda)
 /*
  * Mail ile giriş açık mı? Render'da MAIL_GIRIS=1 ise açık (hesap + kod +
  * 14 gün cihaz kilidi + ad 3 günde bir). Değilse her telefon kendi
@@ -96,6 +97,7 @@ function odaKur(id, ad) {
     kod: kodUret(),
     ayar: Oyun.ayarDuzelt({}),
     oyuncular: [oyuncuYap(id, ad)],
+    izleyiciler: [],     // oyunda olmayan, maçı canlı izleyenler (en çok IZLEYICI_SINIRI)
     mac: null,
     macSayisi: 0,
     skor: {},            // oyuncu kimliği -> galibiyet sayısı (rövanşlar boyunca)
@@ -112,6 +114,30 @@ function odaKur(id, ad) {
 
 function sira(oda, id) { return oda.oyuncular.findIndex(o => o.id === id); }
 
+const IZLEYICI_SINIRI = 10;
+
+/** İzleyicinin göreceği durum (oynayamaz, yalnızca sohbete yazabilir). */
+function izleyiciDurum(oda, z) {
+  return {
+    oda: {
+      kod: oda.kod, ayar: oda.ayar, kurucuBen: false, izleyici: true, macNo: oda.macSayisi,
+      oyuncular: oda.oyuncular.map(o => ({ ad: o.ad, bagli: bagliMi(o), ben: false, galibiyet: oda.skor[o.id] || 0, yaziyor: o.yaziyor || 0 })),
+      izleyiciSayisi: oda.izleyiciler.length, berabere: oda.berabere, faz: oda.mac ? 'mac' : 'lobi',
+    },
+    sohbet: oda.sohbet.map(x => ({ no: x.no, ad: x.ad, metin: x.metin, ben: x.id === z.id })),
+    mac: oda.mac ? oda.mac.izleyiciGorunum() : null,
+    simdi: Date.now(),
+  };
+}
+
+/** Kimliğe göre o anki yeri: oyuncu mu izleyici mi (biri çıkınca numaralar kayar). */
+function kimlikDurumu(oda, id) {
+  const i = sira(oda, id);
+  if (i >= 0) return durum(oda, i);
+  const z = oda.izleyiciler.find(x => x.id === id);
+  return z ? izleyiciDurum(oda, z) : null;
+}
+
 function durum(oda, i) {
   return {
     oda: {
@@ -124,13 +150,16 @@ function durum(oda, i) {
       faz: oda.mac ? 'mac' : 'lobi',
     },
     sohbet: oda.sohbet.map(x => ({ no: x.no, ad: x.ad, metin: x.metin, ben: x.id === oda.oyuncular[i].id })),
+    izleyiciSayisi: oda.izleyiciler.length,
     mac: oda.mac ? (oda.mac.tur === 'yaris' ? oda.mac.gorunum(oda.oyuncular[i].id) : oda.mac.gorunum(i)) : null,
     simdi: Date.now(),
   };
 }
 
-function cevapla(oda, i, yanit) {
-  json(yanit, 200, { surum: oda.surum, durum: durum(oda, i) });
+function cevapla(oda, id, yanit) {
+  const d = odalar.has(oda.kod) ? kimlikDurumu(oda, id) : null;
+  if (!d) return json(yanit, 404, { hata: 'Oda bulunamadı' });
+  json(yanit, 200, { surum: oda.surum, durum: d });
 }
 
 /** Odada bir şey değişti: bekleyen bütün telefonlara yeni durumu gönder. */
@@ -162,12 +191,12 @@ function yayinla(oda) {
   oda.surum++;
   oda.sonHareket = Date.now();
   oda.bagliAnahtar = oda.oyuncular.map(bagliMi).join();
-  oda.oyuncular.forEach((o, i) => {
+  oda.oyuncular.concat(oda.izleyiciler).forEach(o => {
     for (const b of o.bekleyenler) {
       clearTimeout(b.saat);
       o.bekleyenler.delete(b);
       o.sonGorulme = Date.now();
-      cevapla(oda, i, b.yanit);
+      cevapla(oda, o.id, b.yanit);
     }
   });
   zamanla(oda);
@@ -264,7 +293,10 @@ function eylem(oda, i, v) {
       oda.oyuncular.splice(i, 1);
       // Klasikte maç biter; yarışta kalanlar oynamaya devam eder
       if (!yaris || oda.oyuncular.length < 1) oda.mac = null;
-      if (!oda.oyuncular.length) { clearTimeout(oda.zamanlayici); odalar.delete(oda.kod); }
+      if (!oda.oyuncular.length) {
+        clearTimeout(oda.zamanlayici); odalar.delete(oda.kod);
+        for (const z of oda.izleyiciler) for (const b of z.bekleyenler) { clearTimeout(b.saat); json(b.yanit, 404, { hata: 'Oda kapandı' }); }
+      }
       return null;
     }
     default: return 'Bilinmeyen eylem';
@@ -391,6 +423,13 @@ const sunucu = http.createServer(async (istek, yanit) => {
 
     if (yol === '/api/ben') return json(yanit, 200, { hesap: Hesap.goster(hesap) });
 
+    // Meydan okuma
+    if (yol === '/api/meydan' && istek.method === 'GET') {
+      const r = await Meydan.getir(hesap, url.searchParams.get('id'));
+      return json(yanit, r.hata ? r.kod : 200, r);
+    }
+    if (yol === '/api/meydanlarim' && istek.method === 'GET') return json(yanit, 200, { liste: await Meydan.benimkiler(hesap) });
+
     // Yarış rekorları: her oyuncu bir kez, en iyi süresiyle
     if (yol === '/api/yaris-siralama' && istek.method === 'GET') {
       const basamak = [3, 4, 5].includes(Number(url.searchParams.get('basamak'))) ? Number(url.searchParams.get('basamak')) : 3;
@@ -410,16 +449,16 @@ const sunucu = http.createServer(async (istek, yanit) => {
     if (yol === '/api/bekle' && istek.method === 'GET') {
       const oda = odalar.get(String(url.searchParams.get('kod') || '').toUpperCase());
       const i = oda ? sira(oda, id) : -1;
-      if (i < 0) return json(yanit, 404, { hata: 'Oda bulunamadı' });
-      const o = oda.oyuncular[i];
-      const dondu = !bagliMi(o);           // bir süre kopmuştu, şimdi geri geldi
+      const o = i >= 0 ? oda.oyuncular[i] : oda && oda.izleyiciler.find(x => x.id === id);
+      if (!o) return json(yanit, 404, { hata: 'Oda bulunamadı' });
+      const dondu = i >= 0 && !bagliMi(o);  // bir süre kopmuştu, şimdi geri geldi
       o.sonGorulme = Date.now();
-      if (parseInt(url.searchParams.get('surum'), 10) !== oda.surum) return cevapla(oda, i, yanit);
+      if (parseInt(url.searchParams.get('surum'), 10) !== oda.surum) return cevapla(oda, id, yanit);
       const b = { yanit };
       b.saat = setTimeout(() => {
         o.bekleyenler.delete(b);
         o.sonGorulme = Date.now();
-        cevapla(oda, i, yanit);
+        cevapla(oda, id, yanit);
       }, BEKLEME);
       o.bekleyenler.add(b);
       istek.on('close', () => { clearTimeout(b.saat); o.bekleyenler.delete(b); });
@@ -439,6 +478,9 @@ const sunucu = http.createServer(async (istek, yanit) => {
           return json(yanit, 200, { hesap: h });
         } catch (e) { if (!e.kod) throw e; return json(yanit, e.kod, { hata: e.message }); }
       }
+
+      if (yol === '/api/meydan/olustur') { const r = await Meydan.olustur(hesap, v); return json(yanit, r.hata ? r.kod : 200, r); }
+      if (yol === '/api/meydan/sor') { const r = await Meydan.sor(hesap, v.id, v.tahmin); return json(yanit, r.hata ? r.kod : 200, r); }
 
       if (yol === '/api/gunluk/sor') {
         const gun = Gunluk.bugun();
@@ -466,6 +508,19 @@ const sunucu = http.createServer(async (istek, yanit) => {
         return json(yanit, 404, { hata: 'Bu kodla bir oda yok' });
       }
 
+      // İzle: oyuncu olmadan maçı canlı izle
+      if (yol === '/api/izle') {
+        if (sira(oda, id) >= 0) return json(yanit, 200, { kod: oda.kod, oyuncu: true });
+        let z = oda.izleyiciler.find(x => x.id === id);
+        if (!z) {
+          if (oda.izleyiciler.length >= IZLEYICI_SINIRI) return json(yanit, 409, { hata: 'Bu odayı çok kişi izliyor' });
+          z = oyuncuYap(id, ad);
+          oda.izleyiciler.push(z);
+          yayinla(oda);
+        }
+        z.ad = ad;
+        return json(yanit, 200, { kod: oda.kod });
+      }
       if (yol === '/api/katil') {
         const i = sira(oda, id);
         if (i >= 0) { oda.oyuncular[i].ad = ad; return json(yanit, 200, { kod: oda.kod }); }
@@ -477,7 +532,25 @@ const sunucu = http.createServer(async (istek, yanit) => {
       }
       if (yol === '/api/eylem') {
         const i = sira(oda, id);
-        if (i < 0) return json(yanit, 403, { hata: 'Bu odada değilsin' });
+        if (i < 0) {
+          // İzleyici yalnızca sohbete yazabilir ya da çıkabilir
+          const zi = oda.izleyiciler.findIndex(x => x.id === id);
+          if (zi < 0) return json(yanit, 403, { hata: 'Bu odada değilsin' });
+          const z = oda.izleyiciler[zi];
+          if (v.tur === 'ayril') {
+            for (const b of z.bekleyenler) { clearTimeout(b.saat); json(b.yanit, 404, { hata: 'Odadan çıktın' }); }
+            oda.izleyiciler.splice(zi, 1);
+          } else if (v.tur === 'mesaj') {
+            const metin = String(v.metin || '').replace(/\s+/g, ' ').trim().slice(0, MESAJ_UZUNLUK);
+            if (!metin) return json(yanit, 400, { hata: 'Mesaj boş' });
+            if (Date.now() - (z.sonMesaj || 0) < 600) return json(yanit, 400, { hata: 'Biraz yavaş :)' });
+            z.sonMesaj = Date.now();
+            oda.sohbet.push({ no: ++oda.mesajNo, id: z.id, ad: '👀 ' + z.ad, metin });
+            if (oda.sohbet.length > SOHBET_SINIR) oda.sohbet.shift();
+          } else return json(yanit, 403, { hata: 'İzleyiciler oynayamaz' });
+          yayinla(oda);
+          return json(yanit, 200, { tamam: true });
+        }
         const h = eylem(oda, i, v);
         if (h) return json(yanit, 400, { hata: h });
         if (odalar.has(oda.kod)) yayinla(oda);
@@ -519,6 +592,7 @@ setInterval(() => {
 depoAc(process.env.DATABASE_URL).then(depo => {
   DEPO_TURU = depo.tur;
   DEPO = depo;
+  Meydan = meydanModulu(depo);
   Hesap = hesapModulu(depo);
   GunlukOyun = Gunluk.gunlukModulu(depo);
   if (depo.tur === 'bellek') console.log('UYARI: DATABASE_URL yok, hesaplar bellekte (sunucu kapanınca silinir).');

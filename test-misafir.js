@@ -91,6 +91,39 @@ function istemci(cihaz, ad) {
   esit((await ali.post('/api/eylem', { kod: oda3.kod, tur: 'yaziyor' })).durum, 200, 'yazıyor bildirildi');
   const ay = (await ayse.get(`/api/bekle?kod=${oda3.kod}&surum=-1`)).durum.oda.oyuncular.find(o => !o.ben);
   esit(Date.now() - ay.yaziyor < 5000, true, 'rakip yazıyor bilgisini görüyor');
+  // Meydan okuma: Ali sayı tutar, Ayşe bağlantıyla oynar; Ali sonuçları görür
+  const md = await ali.post('/api/meydan/olustur', { basamak: 3, sayi: '472' });
+  esit(typeof md.id, 'string', 'meydan okuma oluşturuldu');
+  esit((await ali.post('/api/meydan/sor', { id: md.id, tahmin: '123' })).durum, 400, 'kendi meydan okumasını oynayamaz');
+  const ilkBakis = await ayse.get('/api/meydan?id=' + md.id);
+  esit([ilkBakis.gizli, ilkBakis.sonuclar, ilkBakis.sahip], [null, null, 'Ali Can'], 'oynayan sayıyı ve sonuçları başta görmez');
+  await ayse.post('/api/meydan/sor', { id: md.id, tahmin: '123' });
+  const mb = await ayse.post('/api/meydan/sor', { id: md.id, tahmin: '472' });
+  esit([mb.tahminler.length, mb.gizli, mb.sonuclar.length, !!mb.cozuldu], [2, '472', 1, true], 'oynayan bulunca sayıyı ve sonuçları görür');
+  esit((await ayse.post('/api/meydan/sor', { id: md.id, tahmin: '123' })).durum, 409, 'aynı meydan okuma bir kez');
+  const sahipBakis = await ali.get('/api/meydan?id=' + md.id);
+  esit([sahipBakis.sahipBen, sahipBakis.sonuclar[0].ad, sahipBakis.sonuclar[0].soru], [true, 'Ayşe', 2], 'meydan okuyan sonuçları görür');
+  esit((await ali.get('/api/meydanlarim')).liste[0].cozen, 1, 'gönderdiklerim listesi');
+  esit((await ayse.get('/api/meydan?id=yokboyle')).durum, 404, 'olmayan meydan okuma');
+
+  // İzleyici: oynamadan izler, sayıları göremez, sohbete yazabilir, oynayamaz
+  const izleyen = istemci('1234123412341234abcdabcd', { v: 'Seyirci' });
+  await izleyen.post('/api/ad', { ad: 'Seyirci' });
+  const oda4 = await ali.post('/api/oda');
+  await ayse.post('/api/katil', { kod: oda4.kod });
+  esit((await izleyen.post('/api/izle', { kod: oda4.kod })).durum, 200, 'izleyici odaya girdi');
+  await ali.post('/api/eylem', { kod: oda4.kod, tur: 'basla' });
+  await ali.post('/api/eylem', { kod: oda4.kod, tur: 'gizli', sayi: '123' });
+  await ayse.post('/api/eylem', { kod: oda4.kod, tur: 'gizli', sayi: '456' });
+  const iz = (await izleyen.get(`/api/bekle?kod=${oda4.kod}&surum=-1`)).durum;
+  esit([iz.oda.izleyici, iz.mac.izleyici, iz.mac.oyuncular.map(p => p.gizli)], [true, true, [null, null]], 'izleyici sayıları görmüyor');
+  esit((await izleyen.post('/api/eylem', { kod: oda4.kod, tur: 'tahmin', sayi: '789' })).durum, 403, 'izleyici oynayamaz');
+  esit((await izleyen.post('/api/eylem', { kod: oda4.kod, tur: 'mesaj', metin: 'Hadi Ali!' })).durum, 200, 'izleyici sohbete yazar');
+  const aliGorur = (await ali.get(`/api/bekle?kod=${oda4.kod}&surum=-1`)).durum;
+  esit([aliGorur.izleyiciSayisi, aliGorur.sohbet.slice(-1)[0].ad], [1, '👀 Seyirci'], 'oyuncu izleyiciyi ve mesajını görür');
+  await ali.post('/api/eylem', { kod: oda4.kod, tur: 'teslim' });
+  const izBitti = (await izleyen.get(`/api/bekle?kod=${oda4.kod}&surum=-1`)).durum;
+  esit([izBitti.mac.faz, izBitti.mac.oyuncular.map(p => p.gizli)], ['bitti', ['123', '456']], 'oyun bitince izleyici sayıları görür');
   sunucu.kill();
   console.log(hata ? `\n${hata} HATA` : '\nMisafir denetimleri geçti');
   process.exit(hata ? 1 : 0);

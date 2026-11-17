@@ -41,6 +41,21 @@ CREATE TABLE IF NOT EXISTS gunluk (
   cozuldu BIGINT,
   PRIMARY KEY (gun, hesap_id)
 );
+CREATE TABLE IF NOT EXISTS meydan (
+  id TEXT PRIMARY KEY,
+  sahip_id INTEGER NOT NULL,
+  gizli TEXT NOT NULL,
+  basamak INTEGER NOT NULL,
+  olusturma BIGINT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS meydan_oyun (
+  meydan_id TEXT NOT NULL,
+  hesap_id INTEGER NOT NULL,
+  tahminler TEXT NOT NULL,
+  baslangic BIGINT NOT NULL,
+  cozuldu BIGINT,
+  PRIMARY KEY (meydan_id, hesap_id)
+);
 CREATE TABLE IF NOT EXISTS yaris_rekor (
   id SERIAL PRIMARY KEY,
   hesap_id INTEGER NOT NULL,
@@ -143,6 +158,41 @@ async function depoAc(adres) {
                ON CONFLICT (gun, hesap_id) DO UPDATE SET tahminler = EXCLUDED.tahminler, cozuldu = EXCLUDED.cozuldu`,
         [gun, hesapId, JSON.stringify(tahminler), cozuldu]);
     },
+    // ---- meydan okuma
+    async meydanEkle(id, sahipId, gizli, basamak, zaman) {
+      await q('INSERT INTO meydan (id, sahip_id, gizli, basamak, olusturma) VALUES ($1, $2, $3, $4, $5)', [id, sahipId, gizli, basamak, zaman]);
+    },
+    async meydanAl(id) {
+      const r = (await q('SELECT * FROM meydan WHERE id = $1', [id]))[0];
+      return r && { id: r.id, sahipId: Number(r.sahip_id), gizli: r.gizli, basamak: Number(r.basamak), olusturma: sayi(r.olusturma) };
+    },
+    async meydanSay(sahipId, sonra) {
+      return (await q('SELECT id FROM meydan WHERE sahip_id = $1 AND olusturma > $2', [sahipId, sonra])).length;
+    },
+    async meydanOyunAl(meydanId, hesapId) {
+      const r = (await q('SELECT * FROM meydan_oyun WHERE meydan_id = $1 AND hesap_id = $2', [meydanId, hesapId]))[0];
+      return r && { tahminler: JSON.parse(r.tahminler), baslangic: sayi(r.baslangic), cozuldu: sayi(r.cozuldu) };
+    },
+    async meydanOyunKoy(meydanId, hesapId, tahminler, baslangic, cozuldu) {
+      await q(`INSERT INTO meydan_oyun (meydan_id, hesap_id, tahminler, baslangic, cozuldu) VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (meydan_id, hesap_id) DO UPDATE SET tahminler = EXCLUDED.tahminler, cozuldu = EXCLUDED.cozuldu`,
+        [meydanId, hesapId, JSON.stringify(tahminler), baslangic, cozuldu]);
+    },
+    async meydanOyunlari(meydanId) {
+      return (await q(`SELECT o.*, h.ad FROM meydan_oyun o JOIN hesaplar h ON h.id = o.hesap_id WHERE o.meydan_id = $1`, [meydanId]))
+        .map(r => ({ hesapId: Number(r.hesap_id), ad: r.ad, tahminler: JSON.parse(r.tahminler), baslangic: sayi(r.baslangic), cozuldu: sayi(r.cozuldu) }));
+    },
+    async meydanlarim(sahipId) {
+      const l = (await q('SELECT * FROM meydan WHERE sahip_id = $1', [sahipId]))
+        .map(r => ({ id: r.id, basamak: Number(r.basamak), olusturma: sayi(r.olusturma) }))
+        .sort((a, b) => b.olusturma - a.olusturma).slice(0, 10);
+      for (const m of l) {
+        const o = await this.meydanOyunlari(m.id);
+        m.oynayan = o.length; m.cozen = o.filter(x => x.cozuldu).length;
+      }
+      return l;
+    },
+
     // ---- yarış rekorları (yalnızca arkadaşlarla oynanan yarışların kazananları)
     async yarisKaydet(hesapId, sure, soru, kisi, basamak, zaman) {
       await q('INSERT INTO yaris_rekor (hesap_id, sure, soru, kisi, basamak, zaman) VALUES ($1, $2, $3, $4, $5, $6)', [hesapId, sure, soru, kisi, basamak, zaman]);

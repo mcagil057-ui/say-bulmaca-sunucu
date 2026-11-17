@@ -481,3 +481,6 @@ input:focus { border-color: var(--murekkep); }
 .tepki-sec button { border: 1px solid var(--kenar); background: var(--kart); border-radius: 10px; font-size: 20px; padding: 2px 6px; cursor: pointer; }
 .tepki-sec button.secili { border-color: var(--murekkep); background: var(--murekkep-acik); }
 canvas.konfeti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 50; }
+.ist-liste li.tiklanir { cursor: pointer; }
+
+.defter.izle-coklu { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }

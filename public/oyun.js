@@ -346,6 +346,20 @@
       this.bekleyen = null;
     }
 
+    /** İzleyicinin göreceği durum: iki oyuncunun soruları; sayılar oyun bitene kadar gizli. */
+    izleyiciGorunum() {
+      const bitti = this.faz === 'bitti';
+      return {
+        tur: 'klasik', izleyici: true, id: this.id, faz: this.faz, ayar: this.ayar,
+        sira: this.sira, asama: this.asama, bekleyen: this.bekleyen, bitis: this.bitis, sonSans: this.sonSans,
+        oyuncular: this.oyuncular.map((o, p) => ({
+          ad: o.ad, hazir: !!o.gizli, yanlis: o.yanlis, gizli: bitti ? o.gizli : null,
+          sorular: this.kayitlar.filter(k => k.kim === p),
+        })),
+        sonuc: this.sonuc ? { kazanan: this.sonuc.kazanan === -1 ? null : this.oyuncular[this.sonuc.kazanan].ad, neden: this.sonuc.neden } : null,
+      };
+    }
+
     /** i numaralı oyuncunun göreceği durum. Rakibin sayısı oyun bitene kadar gizli. */
     gorunum(i) {
       const ben = this.oyuncular[i], rakip = this.oyuncular[1 - i];
@@ -424,6 +438,18 @@
       this.kazanan = kazanan;
       this.bitis = this.simdi();
       this.sonuc = { kazanan, neden, sure: this.bitis - this.baslangic };
+    }
+
+    /** İzleyici: herkesin soru sayısı; sorular ve sayı oyun bitince. */
+    izleyiciGorunum() {
+      const bitti = this.faz === 'bitti';
+      const kazananO = this.kazanan != null ? this._o(this.kazanan) : null;
+      return {
+        tur: 'yaris', izleyici: true, id: this.id, faz: this.faz, ayar: this.ayar, baslangic: this.baslangic, bitis: this.bitis,
+        oyuncular: this.oyuncular.map(o => ({ ad: o.ad, soru: o.sorular.length, cekildi: o.cekildi, sorular: bitti ? o.sorular : null })),
+        gizli: bitti ? this.gizli : null,
+        sonuc: this.sonuc ? { kazanan: kazananO ? kazananO.ad : null, neden: this.sonuc.neden, sure: this.sonuc.sure, soru: kazananO ? kazananO.sorular.length : null } : null,
+      };
     }
 
     /** id'li oyuncunun göreceği durum. Sayı ve başkalarının soruları oyun bitene kadar gizli. */
