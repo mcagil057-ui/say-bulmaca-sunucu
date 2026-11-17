@@ -36,6 +36,14 @@ function macKaydet(d) {
   const m = d.mac;
   if (!m || m.faz !== 'bitti' || !m.sonuc) return;
   const N = m.ayar.basamak;
+  if (m.tur === 'yaris') {
+    Istat.kaydet({
+      id: m.id, t: Date.now(), tur: 'oda', seviye: null, rakip: `Yarış (${m.oyuncular.length} kişi)`,
+      sonuc: m.sonuc.kazanan === 'ben' ? 'g' : 'm', soru: m.ben.sorular.length,
+      buldum: m.ben.sorular.some(k => k.arti === N), basamak: N,
+    });
+    return;
+  }
   const benim = m.sorularim.filter(k => k.tahmin);
   Istat.kaydet({
     id: m.id, t: Date.now(),

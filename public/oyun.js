@@ -20,6 +20,7 @@
     basSifir: false, // sayı 0 ile başlayabilir mi
     esitTur: true,   // başlayan bulursa rakibe son bir hak
     otoCevap: true,  // cevabı uygulama verir (kapalıysa oyuncu elle yazar)
+    oyunTuru: 'klasik', // 'klasik' (2 kişi, herkes sayı tutar) | 'yaris' (2–4 kişi, tek ortak sayı)
   };
   const SURELER = [0, 30, 45, 60, 90, 120];
   // Botların eski cevapları hatırlama olasılığı (test.js ile ayarlandı).
@@ -37,6 +38,7 @@
       basSifir: !!a.basSifir,
       esitTur: !!a.esitTur,
       otoCevap: !!a.otoCevap,
+      oyunTuru: a.oyunTuru === 'yaris' ? 'yaris' : 'klasik',
     };
   }
 
@@ -358,5 +360,80 @@
     }
   }
 
-  return { VARSAYILAN_AYAR, SURELER, ayarDuzelt, puanla, sayiHatasi, tumSayilar, rastgeleSayi, botTahmin, analizEt, botKacSoruda, Mac };
+  /**
+   * Yarış: 2–4 oyuncu, sayıyı uygulama tutar, herkes AYNI ANDA sorar,
+   * cevaplar otomatik. İlk bulan kazanır ve oyun hemen biter (en kısa sürede
+   * bulan). Oyun sırasında başkalarının yalnızca soru sayısı görünür.
+   * Oyuncular kimlikle (id) tutulur: biri odadan çıksa da sıra karışmaz.
+   */
+  class Yaris {
+    constructor(ayar, oyuncular, simdi, rnd) {
+      this.tur = 'yaris';
+      this.ayar = ayarDuzelt(Object.assign({}, ayar, { oyunTuru: 'yaris' }));
+      this.simdi = simdi || Date.now;
+      this.gizli = rastgeleSayi(this.ayar, rnd);
+      this.oyuncular = oyuncular.map(o => ({ id: o.id, ad: o.ad, sorular: [], cekildi: false }));
+      this.faz = 'oyun';
+      this.baslangic = this.simdi();
+      this.bitis = null;
+      this.kazanan = null;      // id
+      this.sonuc = null;
+      this.id = Math.random().toString(36).slice(2, 10);
+    }
+    _o(id) { return this.oyuncular.find(o => o.id === id); }
+
+    tahminEt(id, s) {
+      if (this.faz !== 'oyun') return 'Oyun bitti';
+      const o = this._o(id);
+      if (!o) return 'Bu yarışta değilsin';
+      if (o.cekildi) return 'Yarıştan çekildin';
+      const h = sayiHatasi(s, this.ayar);
+      if (h) return h;
+      if (o.sorular.some(k => k.tahmin === s)) return 'Bu sayıyı zaten sordun';
+      const p = puanla(this.gizli, s);
+      o.sorular.push({ tahmin: s, arti: p.arti, eksi: p.eksi, zaman: this.simdi() - this.baslangic });
+      if (p.arti === this.ayar.basamak) this._bitir(id, 'buldu');
+      return null;
+    }
+
+    /** Pes et / odadan çık: bu oyuncu artık soramaz; kimse kalmazsa oyun biter. */
+    cekil(id) {
+      const o = this._o(id);
+      if (!o || this.faz !== 'oyun') return null;
+      o.cekildi = true;
+      if (this.oyuncular.every(x => x.cekildi)) this._bitir(null, 'herkesCekildi');
+      return null;
+    }
+
+    _bitir(kazanan, neden) {
+      this.faz = 'bitti';
+      this.kazanan = kazanan;
+      this.bitis = this.simdi();
+      this.sonuc = { kazanan, neden, sure: this.bitis - this.baslangic };
+    }
+
+    /** id'li oyuncunun göreceği durum. Sayı ve başkalarının soruları oyun bitene kadar gizli. */
+    gorunum(id) {
+      const bitti = this.faz === 'bitti';
+      const ben = this._o(id) || { ad: '', sorular: [], cekildi: true };
+      const kazananO = this.kazanan != null ? this._o(this.kazanan) : null;
+      return {
+        tur: 'yaris', id: this.id, faz: this.faz, ayar: this.ayar,
+        baslangic: this.baslangic, bitis: this.bitis,
+        ben: { ad: ben.ad, sorular: ben.sorular, cekildi: ben.cekildi },
+        oyuncular: this.oyuncular.map(o => ({
+          ad: o.ad, ben: o.id === id, soru: o.sorular.length, cekildi: o.cekildi,
+          sorular: bitti || o.id === id ? o.sorular : null,
+        })),
+        gizli: bitti ? this.gizli : null,
+        sonuc: this.sonuc ? {
+          kazanan: this.kazanan == null ? null : (this.kazanan === id ? 'ben' : kazananO.ad),
+          neden: this.sonuc.neden, sure: this.sonuc.sure,
+          soru: kazananO ? kazananO.sorular.length : null,
+        } : null,
+      };
+    }
+  }
+
+  return { VARSAYILAN_AYAR, SURELER, ayarDuzelt, puanla, sayiHatasi, tumSayilar, rastgeleSayi, botTahmin, analizEt, botKacSoruda, Mac, Yaris };
 });

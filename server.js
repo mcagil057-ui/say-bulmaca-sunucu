@@ -124,7 +124,7 @@ function durum(oda, i) {
       faz: oda.mac ? 'mac' : 'lobi',
     },
     sohbet: oda.sohbet.map(x => ({ no: x.no, ad: x.ad, metin: x.metin, ben: x.id === oda.oyuncular[i].id })),
-    mac: oda.mac ? oda.mac.gorunum(i) : null,
+    mac: oda.mac ? (oda.mac.tur === 'yaris' ? oda.mac.gorunum(oda.oyuncular[i].id) : oda.mac.gorunum(i)) : null,
     simdi: Date.now(),
   };
 }
@@ -139,6 +139,10 @@ function skorIsle(oda) {
   const m = oda.mac;
   if (!m || m.faz !== 'bitti' || m.skorlandi) return;
   m.skorlandi = true;
+  if (m.tur === 'yaris') {   // yarışta kazanan kimlikle tutulur
+    if (m.kazanan != null) oda.skor[m.kazanan] = (oda.skor[m.kazanan] || 0) + 1;
+    return;
+  }
   const k = m.sonuc.kazanan;
   if (k === -1) oda.berabere++;
   else if (oda.oyuncular[k]) { const id = oda.oyuncular[k].id; oda.skor[id] = (oda.skor[id] || 0) + 1; }
@@ -177,9 +181,18 @@ function zamanla(oda) {
   }, Math.max(0, m.bitis - Date.now()) + 30);
 }
 
+/** Oyun türüne göre oda kapasitesi: klasik 2, yarış 4 kişi. */
+const kapasite = oda => (oda.ayar.oyunTuru === 'yaris' ? 4 : 2);
+const yarisMi = oda => !!oda.mac && oda.mac.tur === 'yaris';
+
 function yeniMac(oda) {
+  if (oda.ayar.oyunTuru === 'yaris') {
+    oda.macSayisi++;
+    oda.mac = new Oyun.Yaris(oda.ayar, oda.oyuncular.map(o => ({ id: o.id, ad: o.ad })));
+    return;
+  }
   // İlk maçta başlayan rastgele, rövanşlarda sırayla değişir.
-  const baslayan = oda.macSayisi === 0 ? crypto.randomInt(2) : (oda.mac ? 1 - oda.mac.baslayan : 0);
+  const baslayan = !oda.mac || oda.mac.tur === 'yaris' ? crypto.randomInt(2) : 1 - oda.mac.baslayan;
   oda.macSayisi++;
   oda.mac = new Oyun.Mac(oda.ayar, oda.oyuncular.map(o => o.ad), baslayan);
 }
@@ -190,27 +203,33 @@ function eylem(oda, i, v) {
     case 'ayar':
       if (i !== 0) return 'Ayarları odayı kuran değiştirir';
       if (m) return 'Maç sürerken ayar değişmez';
-      oda.ayar = Oyun.ayarDuzelt(Object.assign({}, oda.ayar, v.ayar));
+      {
+        const yeni = Oyun.ayarDuzelt(Object.assign({}, oda.ayar, v.ayar));
+        if (yeni.oyunTuru === 'klasik' && oda.oyuncular.length > 2) return 'Klasik oyun 2 kişilik; odada 2\'den fazla kişi var';
+        oda.ayar = yeni;
+      }
       return null;
     case 'basla':
       if (i !== 0) return 'Oyunu odayı kuran başlatır';
       if (oda.oyuncular.length < 2) return 'Rakip bekleniyor';
+      if (oda.oyuncular.length > kapasite(oda)) return 'Bu oyun türü için odada çok kişi var';
       if (m && m.faz !== 'bitti') return 'Maç zaten sürüyor';
       yeniMac(oda);
       return null;
     case 'rovans':
       if (!m || m.faz !== 'bitti') return 'Maç bitmedi';
       if (oda.oyuncular.length < 2) return 'Rakip odadan çıktı';
+      if (oda.oyuncular.length > kapasite(oda)) return 'Bu oyun türü için odada çok kişi var';
       yeniMac(oda);
       return null;
     case 'lobi':
       if (m && m.faz !== 'bitti') return 'Maç sürüyor';
       oda.mac = null;
       return null;
-    case 'gizli': return m ? m.gizliBelirle(i, String(v.sayi)) : 'Maç yok';
-    case 'tahmin': return m ? m.tahminEt(i, String(v.sayi)) : 'Maç yok';
-    case 'cevap': return m ? m.cevapVer(i, v.arti, v.eksi) : 'Maç yok';
-    case 'teslim': return m ? m.teslim(i) : 'Maç yok';
+    case 'gizli': return !m ? 'Maç yok' : yarisMi(oda) ? 'Yarışta sayıyı uygulama tutar' : m.gizliBelirle(i, String(v.sayi));
+    case 'tahmin': return !m ? 'Maç yok' : yarisMi(oda) ? m.tahminEt(oda.oyuncular[i].id, String(v.sayi)) : m.tahminEt(i, String(v.sayi));
+    case 'cevap': return !m ? 'Maç yok' : yarisMi(oda) ? 'Yarışta cevaplar otomatik' : m.cevapVer(i, v.arti, v.eksi);
+    case 'teslim': return !m ? 'Maç yok' : yarisMi(oda) ? m.cekil(oda.oyuncular[i].id) : m.teslim(i);
     case 'mesaj': {
       const o = oda.oyuncular[i];
       const metin = String(v.metin || '').replace(/\s+/g, ' ').trim().slice(0, MESAJ_UZUNLUK);
@@ -221,13 +240,16 @@ function eylem(oda, i, v) {
       if (oda.sohbet.length > SOHBET_SINIR) oda.sohbet.shift();
       return null;
     }
-    case 'ayril':
-      if (m && m.faz !== 'bitti') m.teslim(i);
+    case 'ayril': {
+      const yaris = yarisMi(oda);
+      if (m && m.faz !== 'bitti') { if (yaris) m.cekil(oda.oyuncular[i].id); else m.teslim(i); }
       for (const b of oda.oyuncular[i].bekleyenler) { clearTimeout(b.saat); json(b.yanit, 404, { hata: 'Odadan çıktın' }); }
       oda.oyuncular.splice(i, 1);
-      oda.mac = null;
+      // Klasikte maç biter; yarışta kalanlar oynamaya devam eder
+      if (!yaris || oda.oyuncular.length < 1) oda.mac = null;
       if (!oda.oyuncular.length) { clearTimeout(oda.zamanlayici); odalar.delete(oda.kod); }
       return null;
+    }
     default: return 'Bilinmeyen eylem';
   }
 }
@@ -343,8 +365,8 @@ const sunucu = http.createServer(async (istek, yanit) => {
       const liste = [];
       for (const oda of odalar.values()) {
         const kurucu = oda.oyuncular[0];
-        if (oda.oyuncular.length === 1 && !oda.mac && bagliMi(kurucu)) {
-          liste.push({ ad: kurucu.ad, basamak: oda.ayar.basamak, turSure: oda.ayar.turSure });
+        if (oda.oyuncular.length < kapasite(oda) && !oda.mac && bagliMi(kurucu)) {
+          liste.push({ ad: kurucu.ad, basamak: oda.ayar.basamak, turSure: oda.ayar.turSure, oyunTuru: oda.ayar.oyunTuru, kisi: oda.oyuncular.length, kapasite: kapasite(oda) });
         }
       }
       return json(yanit, 200, { odalar: liste.slice(0, 20) });
@@ -418,7 +440,8 @@ const sunucu = http.createServer(async (istek, yanit) => {
       if (yol === '/api/katil') {
         const i = sira(oda, id);
         if (i >= 0) { oda.oyuncular[i].ad = ad; return json(yanit, 200, { kod: oda.kod }); }
-        if (oda.oyuncular.length >= 2) return json(yanit, 409, { hata: 'Oda dolu' });
+        if (oda.oyuncular.length >= kapasite(oda)) return json(yanit, 409, { hata: 'Oda dolu' });
+        if (oda.mac && oda.mac.faz !== 'bitti') return json(yanit, 409, { hata: 'Odada oyun sürüyor, bitince gir' });
         oda.oyuncular.push(oyuncuYap(id, ad));
         yayinla(oda);
         return json(yanit, 200, { kod: oda.kod });

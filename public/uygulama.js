@@ -135,6 +135,7 @@ function haklar(yanlis, toplam, oto) {
 function hamleBende(d) {
   const m = d && d.mac;
   if (!m) return false;
+  if (m.tur === 'yaris') return m.faz === 'oyun' && !m.ben.cekildi;
   if (m.faz === 'gizli') return !m.ben.hazir;
   if (m.faz !== 'oyun') return false;
   return m.asama === 'tahmin' ? m.siraBende : !m.siraBende;
@@ -354,6 +355,14 @@ function sesCal(once, d) {
   const m = d.mac, om = once && once.mac;
   if (!m) return;
   const ayniMac = om && om.id === m.id;
+  if (m.tur === 'yaris') {
+    if (m.faz === 'bitti' && !(ayniMac && om.faz === 'bitti')) { Ses.cal(m.sonuc.kazanan === 'ben' ? 'kazandin' : 'kaybettin'); return; }
+    if (ayniMac && m.ben.sorular.length > om.ben.sorular.length) {
+      const k = m.ben.sorular[m.ben.sorular.length - 1], N = m.ayar.basamak;
+      Ses.cal(k.arti === N ? 'buldu' : k.arti + k.eksi === 0 ? 'sifir' : k.arti >= N - 1 ? 'yakin' : 'cevap');
+    }
+    return;
+  }
   if (m.faz === 'bitti' && !(ayniMac && om.faz === 'bitti')) {
     Ses.cal(m.sonuc.kazanan === 'ben' ? 'kazandin' : m.sonuc.kazanan === 'rakip' ? 'kaybettin' : 'berabere');
     return;
@@ -453,6 +462,7 @@ function ciz() {
   else if (!S.kaynak) html = S.alt === 'gunluk' ? gunlukCiz() : S.alt === 'profil' ? profilCiz() : girisCiz();
   else if (!d) html = `<div class="ortala"><div class="yukleniyor">Bağlanılıyor…</div><button class="dugme ince" data-e="cik">Vazgeç</button></div>`;
   else if (!d.mac) html = lobiCiz(d);
+  else if (d.mac.tur === 'yaris') html = yarisCiz(d);
   else if (d.mac.faz === 'gizli') html = gizliCiz(d);
   else html = oyunCiz(d);
   $('#ekran').innerHTML = html;
@@ -465,10 +475,18 @@ function logo() {
     <h1>Sayı Bulmaca</h1>`;
 }
 
-function ayarFormu(a, eylem, kilitli) {
+function ayarFormu(a, eylem, kilitli, odada) {
   const sec = (anahtar, deger, etiket) =>
     `<button class="sec ${a[anahtar] === deger ? 'secili' : ''}" data-e="${eylem}" data-v="${anahtar}=${deger}" ${kilitli ? 'disabled' : ''}>${etiket}</button>`;
-  return `<div class="ayarlar">
+  const tur = odada ? `<div class="ayar"><span>Oyun türü</span><div class="secenekler genis">${sec('oyunTuru', 'klasik', 'Klasik (2 kişi)')}${sec('oyunTuru', 'yaris', 'Yarış (2–4 kişi)')}</div>
+      <small class="sol">${a.oyunTuru === 'yaris' ? 'Uygulama bir sayı tutar, herkes aynı anda sorar, ilk bulan kazanır.' : 'Herkes bir sayı tutar, sırayla birbirinizin sayısını sorarsınız.'}</small></div>` : '';
+  if (odada && a.oyunTuru === 'yaris') {
+    return `<div class="ayarlar">${tur}
+    <div class="ayar"><span>Basamak</span><div class="secenekler">${[3, 4, 5].map(b => sec('basamak', b, b)).join('')}</div></div>
+    <div class="ayar"><span>Sayı 0 ile başlayabilir</span><div class="secenekler">${sec('basSifir', false, 'Hayır')}${sec('basSifir', true, 'Evet')}</div></div>
+  </div>`;
+  }
+  return `<div class="ayarlar">${tur}
     <div class="ayar"><span>Cevaplar</span><div class="secenekler">${sec('otoCevap', true, 'Otomatik')}${sec('otoCevap', false, 'Elle yazılır')}</div></div>
     <div class="ayar"><span>Basamak</span><div class="secenekler">${[3, 4, 5].map(b => sec('basamak', b, b)).join('')}</div></div>
     <div class="ayar"><span>Tur süresi</span><div class="secenekler">${Oyun.SURELER.map(s => sec('turSure', s, s ? s + ' sn' : 'Yok')).join('')}</div></div>
@@ -527,7 +545,7 @@ function acikOdalarHTML() {
   const baslik = '<label>Açık odalar <small class="canli">● canlı</small></label>';
   if (!l.length) return baslik + '<p class="not kucuk sol">Şu an rakip bekleyen oda yok.</p>';
   return baslik + '<ul class="oda-listesi">' + l.map(o => `<li>
-      <div><b>${esc(o.ad)}</b><small>${o.basamak} basamak · ${o.turSure ? o.turSure + ' sn' : 'süresiz'}</small></div>
+      <div><b>${esc(o.ad)}</b><small>${o.oyunTuru === 'yaris' ? `Yarış · ${o.kisi}/${o.kapasite} kişi` : 'Klasik'} · ${o.basamak} basamak${o.oyunTuru === 'yaris' ? '' : ' · ' + (o.turSure ? o.turSure + ' sn' : 'süresiz')}</small></div>
       <button class="sec" data-e="katilAc">Kodla gir</button>
     </li>`).join('') + '</ul><p class="not kucuk sol">Odaya girmek için kodu odayı kurandan iste.</p>';
 }
@@ -547,9 +565,11 @@ setInterval(acikOdalariYenile, 3000); // açık odalar 3 saniyede bir yenilenir
 function lobiCiz(d) {
   const o = d.oda;
   const rakip = o.oyuncular.find(x => !x.ben);
+  const yaris = o.ayar.oyunTuru === 'yaris';
+  const kap = yaris ? 4 : 2;
   const oyuncular = o.oyuncular.map((x, i) =>
     `<li><span class="nokta ${x.bagli ? 'acik' : ''}"></span>${esc(x.ad)}${x.ben ? ' <small>(sen)</small>' : ''}${i === 0 ? ' <small class="rozet">kurucu</small>' : ''}</li>`).join('')
-    + (rakip ? '' : '<li class="bekle"><span class="nokta"></span>Rakip bekleniyor…</li>');
+    + (o.oyuncular.length < kap ? `<li class="bekle"><span class="nokta"></span>${rakip ? `Başka oyuncu girebilir (${o.oyuncular.length}/${kap})` : 'Rakip bekleniyor…'}</li>` : '');
   const basla = o.kurucuBen
     ? `<button class="dugme ana" data-e="basla" ${rakip ? '' : 'disabled'}>${rakip ? 'Oyunu başlat' : 'Rakip bekleniyor…'}</button>`
     : '<p class="not">Odayı kuran oyunu başlatacak.</p>';
@@ -564,8 +584,8 @@ function lobiCiz(d) {
         <button class="dugme" data-e="paylas">Bağlantı gönder</button>
       </div>
     </div>
-    <div class="kart"><label>Oyuncular</label><ul class="oyuncular">${oyuncular}</ul>${skorHTML(d)}</div>
-    <div class="kart"><label>Ayarlar ${o.kurucuBen ? '' : '<small>(kurucu belirler)</small>'}</label>${ayarFormu(o.ayar, 'ayar', !o.kurucuBen)}</div>
+    <div class="kart"><label>Oyuncular ${yaris ? `<small>(${o.oyuncular.length}/4)</small>` : ''}</label><ul class="oyuncular">${oyuncular}</ul>${yaris ? yarisSkorHTML(d) : skorHTML(d)}</div>
+    <div class="kart"><label>Ayarlar ${o.kurucuBen ? '' : '<small>(kurucu belirler)</small>'}</label>${ayarFormu(o.ayar, 'ayar', !o.kurucuBen, true)}</div>
     ${basla}
     ${baglantiUyari()}
   </section>`;
@@ -750,7 +770,11 @@ function katmanCiz() {
     return;
   }
   if (S.analiz && m && m.faz === 'bitti') {
-    k.innerHTML = `<div class="perde">${analizHTML(m, S.analiz)}</div>`;
+    k.innerHTML = `<div class="perde">${analizHTML(m.tur === 'yaris' ? yarisAnalizUyarla(m) : m, m.tur === 'yaris' ? 'ben' : S.analiz)}</div>`;
+    return;
+  }
+  if (m && m.tur === 'yaris' && m.faz === 'bitti' && !S.sonucKapali && !S.menu && !S.kurallar && !S.adModal) {
+    k.innerHTML = `<div class="perde">${yarisSonucHTML(S.d)}</div>`;
     return;
   }
   if (S.alt === 'gunluk' && !S.kaynak && S.gSiralama && S.g && S.g.gun) {
@@ -769,6 +793,7 @@ function katmanCiz() {
         <li>Her soruya cevap verilir: yeri doğru her rakam <span class="c arti">+1</span>, sayıda olup yeri yanlış her rakam <span class="c eksi">−1</span>, hiçbiri yoksa <span class="c sifir">0</span>.</li>
         <li>Örnek: sayın 302, soru 203 → 0'ın yeri doğru, 2 ve 3'ün yeri yanlış: <span class="c arti">+1</span><span class="c eksi">−2</span></li>
         <li>"Cevaplar: Otomatik" ayarında cevabı uygulama hesaplar. "Elle yazılır" seçildiyse cevabı sen yazarsın; yanlış yazarsan uygulama yakalar, hakkın düşer, rakibe doğru cevap gider. Hakların bitince kaybedersin.</li>
+        <li><b>Yarış</b> (odada oyun türü): 2–4 kişi. Sayıyı uygulama tutar, herkes aynı anda sorar, cevaplar otomatik. Sayıyı ilk bulan kazanır ve oyun biter. Oyun sırasında başkalarının yalnızca kaç soru sorduğu görünür.</li>
         <li>Rakibin sayısını ilk bulan kazanır. "Eşit tur" açıksa, başlayan bulduğunda rakibine son bir hak verilir; o da bulursa berabere.</li>
         <li>Üstteki 0–9 tablosu senin notun: dokununca rakam çizilir (yok), bir daha dokununca yeşil olur (var). Yalnızca <b>kendi sorduğun</b> sayılarda görünür, her yeni oyunda temizlenir.</li>
         <li>💬 düğmesinden rakibine hazır mesaj, emoji ya da kendi yazdığın mesajı gönderebilirsin. Botlar da cevap verir.</li>
@@ -809,6 +834,82 @@ function katmanCiz() {
   k.innerHTML = ic ? `<div class="perde">${ic}</div>` : '';
 }
 
+// ------------------------------------------------------------ yarış (2–4 kişi, tek ortak sayı)
+function sureYazi(ms) {
+  const sn = Math.floor(ms / 1000);
+  return Math.floor(sn / 60) + ':' + String(sn % 60).padStart(2, '0');
+}
+
+/** Odadaki galibiyetler (yarışta herkes). */
+function yarisSkorHTML(d) {
+  const l = d.oda.oyuncular || [];
+  if (!l.some(x => x.galibiyet)) return '';
+  return `<div class="skor-serit">${l.map(x => `<span>${esc(x.ad)} <b>${x.galibiyet || 0}</b></span>`).join('')}</div>`;
+}
+
+function yarisCiz(d) {
+  const m = d.mac, a = m.ayar, bitti = m.faz === 'bitti';
+  const kisiler = m.oyuncular.map(o => `<span class="yaris-kisi ${o.ben ? 'ben' : ''} ${o.cekildi ? 'cekildi' : ''}">
+      ${esc(o.ad)}${o.ben ? ' <small>(sen)</small>' : ''} · <b>${o.soru}</b> soru</span>`).join('');
+  let durumYazi;
+  if (bitti) durumYazi = m.sonuc.kazanan === 'ben' ? `Buldun! ${sureYazi(m.sonuc.sure)}` : m.sonuc.kazanan ? `${esc(m.sonuc.kazanan)} buldu (${sureYazi(m.sonuc.sure)})` : 'Kimse bulamadı';
+  else if (m.ben.cekildi) durumYazi = 'Yarıştan çekildin, diğerleri devam ediyor';
+  else durumYazi = 'Herkes aynı anda soruyor — ilk bulan kazanır!';
+  const tablo = '<div class="tablo" role="group" aria-label="Rakam eleme tablosu">' +
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => `<button class="hucre r${S.tablo[i]}" data-e="tablo" data-v="${i}" aria-label="${i}">${i}</button>`).join('') + '</div>';
+  const benim = m.ben.sorular.map((k, i) => `<li><span class="an-no">${i + 1}</span>${sayiHTML(k.tahmin, true)}<span class="esittir">=</span>${cevapHTML(k.arti, k.eksi)}<small class="yaris-zaman">${sureYazi(k.zaman)}</small></li>`).join('');
+  const alt = bitti ? sonucSerit(m)
+    : m.ben.cekildi ? '<div class="eylem-alani bekleme"><div class="yukleniyor">Diğerleri oynuyor</div></div>'
+      : `<div class="eylem-alani">${kutular(a.basamak, S.girdi)}${tusTakimi(a, S.girdi, 'sor', 'Sor')}</div>`;
+  return `<section class="oyun yaris ${bitti ? 'bitti' : ''}">
+    <header class="oyun-ust ${d.sohbet ? 'sohbetli' : ''}">
+      <button class="geri-ok" data-e="menuAc" aria-label="Menü">⋯</button>
+      <div class="kisi ben"><span class="isim">🏁 Yarış</span><small>${a.basamak} basamak</small></div>
+      <div class="sure" id="sure"><span id="sure-sayi"></span><i id="sure-cubuk"></i></div>
+      <div class="kisi rakip"><span class="isim">${m.oyuncular.length} kişi</span></div>
+      ${d.sohbet ? sohbetDugme(d) : ''}
+    </header>
+    <div class="yaris-kisiler">${kisiler}</div>
+    <div class="durum-serit ${hamleBende(d) ? 'sende' : ''}">${durumYazi}</div>
+    ${tablo}
+    <div class="defter tek"><div class="sutun">
+      <div class="sutun-bas"><span class="tuttugum soru">${bitti && m.gizli ? sayiHTML(m.gizli, false) : '?'.repeat(a.basamak)}</span><small>herkesin aradığı sayı</small></div>
+      <div class="sutun-ad">Sorduğum sorular</div>
+      <ol class="liste" id="y-liste">${benim || '<li class="bos">Henüz soru sormadın</li>'}</ol>
+    </div></div>
+    ${alt}
+    ${baglantiUyari()}
+  </section>`;
+}
+
+function yarisSonucHTML(d) {
+  const m = d.mac, s = m.sonuc;
+  const baslik = s.kazanan === 'ben' ? 'Kazandın!' : s.kazanan ? 'Kaybettin' : 'Kimse bulamadı';
+  const neden = s.kazanan === 'ben' ? `${sureYazi(s.sure)}'de, ${s.soru}. soruda buldun.`
+    : s.kazanan ? `${esc(s.kazanan)} ${sureYazi(s.sure)}'de, ${s.soru}. soruda buldu.` : 'Herkes yarıştan çekildi.';
+  const liste = m.oyuncular.slice().sort((x, y) => (y.sorular && y.sorular.some(k => k.arti === m.ayar.basamak)) - (x.sorular && x.sorular.some(k => k.arti === m.ayar.basamak)) || x.soru - y.soru)
+    .map(o => {
+      const buldu = o.sorular && o.sorular.some(k => k.arti === m.ayar.basamak);
+      const son = o.sorular && o.sorular[o.sorular.length - 1];
+      return `<li class="${o.ben ? 'ben' : ''}"><span class="an-no">${buldu ? '🏆' : o.cekildi ? '🏳️' : '·'}</span><span class="sir-ad">${esc(o.ad)}${o.ben ? ' <small>(sen)</small>' : ''}</span>
+        <b>${o.soru} soru${son && !buldu ? ` <small>son: ${cevapMetin(son.arti, son.eksi)}</small>` : ''}</b></li>`;
+    }).join('');
+  const kurucu = d.oda.kurucuBen;
+  return `<div class="modal sonuc ${s.kazanan === 'ben' ? 'ben' : 'rakip'}"><h2>${baslik}</h2><p>${neden}</p>
+    <div class="karsilastir"><div><small>Aranan sayı</small>${sayiHTML(m.gizli, false)}</div></div>
+    <ol class="sir-liste">${liste}</ol>
+    ${yarisSkorHTML(d)}
+    <button class="dugme ana" data-e="rovans">Rövanş</button>
+    <button class="dugme" data-e="analizAc" data-v="ben">📈 Sorularımın analizi</button>
+    ${kurucu ? '<button class="dugme" data-e="lobi">Ayarları değiştir</button>' : ''}
+    <button class="dugme ince" data-e="sonucKapat">Tahtaya bak</button></div>`;
+}
+
+/** Analiz ekranı klasik maç biçimini bekler: yarışı ona çevir (yalnızca benim sorularım). */
+function yarisAnalizUyarla(m) {
+  return { id: m.id, ayar: m.ayar, tekSekme: true, sorularim: m.ben.sorular, gelenSorular: [], rakip: { ad: '', gizli: m.gizli }, ben: { gizli: null } };
+}
+
 function mesajlarHTML(l) {
   if (!l.length) return '<li class="bos">Henüz mesaj yok. Aşağıdan hazır bir mesaj ya da emoji seç.</li>';
   return l.map(x => {
@@ -822,6 +923,13 @@ function sureGuncelle() {
   const kutu = $('#sure');
   if (!kutu) return;
   const m = S.d && S.d.mac;
+  if (m && m.tur === 'yaris') {
+    const gecen = Math.max(0, (m.faz === 'bitti' ? m.bitis : Date.now() + S.ofset) - m.baslangic);
+    $('#sure-sayi').textContent = sureYazi(gecen);
+    $('#sure-cubuk').style.width = '0%';
+    kutu.className = 'sure yaris-sure';
+    return;
+  }
   if (!m || m.faz !== 'oyun' || !m.bitis) { kutu.className = 'sure yok'; return; }
   const kalan = Math.max(0, m.bitis - (Date.now() + S.ofset));
   const sn = Math.ceil(kalan / 1000);
@@ -848,7 +956,7 @@ async function gonder(tur, veri) {
 
 function ayarDegeri(v) {
   const [k, x] = v.split('=');
-  return { [k]: x === 'true' ? true : x === 'false' ? false : +x };
+  return { [k]: x === 'true' ? true : x === 'false' ? false : isNaN(+x) ? x : +x };
 }
 
 const EYLEM = {
@@ -916,7 +1024,7 @@ const EYLEM = {
     const h = Oyun.sayiHatasi(S.girdi, S.d.mac.ayar);
     if (h) { bildir(h, 'kotu'); return; }
     const s = S.girdi;
-    if (S.d.mac.sorularim.some(k => k.tahmin === s)) { bildir('Bu sayıyı zaten sordun', 'kotu'); return; }
+    if ((S.d.mac.tur === 'yaris' ? S.d.mac.ben.sorular : S.d.mac.sorularim).some(k => k.tahmin === s)) { bildir('Bu sayıyı zaten sordun', 'kotu'); return; }
     S.girdi = '';
     if (!(await gonder('tahmin', { sayi: s }))) { S.girdi = s; ciz(); }
   },
@@ -997,7 +1105,8 @@ document.addEventListener('keydown', e => {
   }
   const m = S.d && S.d.mac;
   if (!m || $('#katman').innerHTML) return;
-  const yazilabilir = (m.faz === 'gizli' && !m.ben.hazir) || (m.faz === 'oyun' && m.asama === 'tahmin' && m.siraBende);
+  const yazilabilir = m.tur === 'yaris' ? (m.faz === 'oyun' && !m.ben.cekildi)
+    : (m.faz === 'gizli' && !m.ben.hazir) || (m.faz === 'oyun' && m.asama === 'tahmin' && m.siraBende);
   if (!yazilabilir) return;
   if (/^\d$/.test(e.key)) {
     const tus = document.querySelector(`.tus[data-v="${e.key}"]`);

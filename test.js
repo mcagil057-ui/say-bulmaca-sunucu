@@ -70,6 +70,25 @@ esit(an.every(x => x.olabilirdi), true, 'analiz: hepsi tutarlı soru');
 const an2 = O.analizEt(O.ayarDuzelt({}), [{ tahmin: '123', arti: 0, eksi: 0 }, { tahmin: '124', arti: 0, eksi: 0 }]);
 esit(an2[1].olabilirdi, false, 'analiz: çelişkili soru yakalandı');
 
+// Yarış: 3 kişi, tek sayı, aynı anda; ilk bulan kazanır, oyun hemen biter
+let ys = 0;
+const y = new O.Yaris({ basamak: 3 }, [{ id: 'a', ad: 'Ali' }, { id: 'b', ad: 'Ayşe' }, { id: 'c', ad: 'Can' }], () => ys);
+const g0 = y.gorunum('a');
+esit([g0.gizli, g0.oyuncular.length, g0.ayar.oyunTuru], [null, 3, 'yaris'], 'yarış: sayı gizli, 3 oyuncu');
+const yanlisSayi = O.tumSayilar(y.ayar).find(t => O.puanla(y.gizli, t).arti < 3);
+ys = 5000; y.tahminEt('b', yanlisSayi);
+esit(y.gorunum('a').oyuncular.find(o => o.ad === 'Ayşe'), { ad: 'Ayşe', ben: false, soru: 1, cekildi: false, sorular: null }, 'yarış: başkasının yalnızca soru sayısı görünür');
+esit(y.tahminEt('b', yanlisSayi), 'Bu sayıyı zaten sordun', 'yarış: aynı sayı iki kez sorulmaz');
+ys = 12000; y.tahminEt('c', y.gizli);
+const gb = y.gorunum('a');
+esit([gb.faz, gb.sonuc.kazanan, gb.sonuc.sure, gb.gizli === y.gizli], ['bitti', 'Can', 12000, true], 'yarış: ilk bulan kazanır, süre tutulur');
+esit(y.tahminEt('a', yanlisSayi), 'Oyun bitti', 'yarış: bitince soru yok');
+esit(gb.oyuncular.find(o => o.ad === 'Ayşe').sorular.length, 1, 'yarış: bitince herkesin soruları görünür');
+esit(y.gorunum('c').sonuc.kazanan, 'ben', 'yarış: kazanana "ben"');
+const y2 = new O.Yaris({}, [{ id: 'a', ad: 'A' }, { id: 'b', ad: 'B' }]);
+y2.cekil('a'); y2.cekil('b');
+esit([y2.faz, y2.sonuc.kazanan], ['bitti', null], 'yarış: herkes çekilirse kazanan yok');
+
 // Botlar: kaç soruda buluyorlar?
 function botOlc(seviye, ayar, n) {
   ayar = O.ayarDuzelt(ayar);

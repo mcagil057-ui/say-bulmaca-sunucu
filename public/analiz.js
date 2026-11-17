@@ -49,10 +49,10 @@ function analizHTML(m, kimin) {
 
   return `<div class="modal analiz">
     <h2>Maç analizi</h2>
-    <div class="secenekler genis">
+    ${m.tekSekme ? '' : `<div class="secenekler genis">
       <button class="sec ${ben ? 'secili' : ''}" data-e="analizAc" data-v="ben">Benim sorularım</button>
       <button class="sec ${ben ? '' : 'secili'}" data-e="analizAc" data-v="rakip">${esc(m.rakip.ad)}</button>
-    </div>
+    </div>`}
     <p class="an-ozet">${ozet}</p>
     <p class="not kucuk sol">Sayılar: o sorudan önce → sonra kaç sayı hâlâ mümkündü. Çubuk, sorunun kaç ihtimali elediğini gösterir.</p>
     <ol class="an-liste">${satirlar || '<li class="bos">Soru yok</li>'}</ol>

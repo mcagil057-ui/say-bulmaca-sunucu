@@ -439,3 +439,13 @@ input:focus { border-color: var(--murekkep); }
 .hesap-kart .sec { flex: none; }
 .giris-hata { margin: 0; color: var(--kirmizi); font-weight: 800; font-size: 14.5px; text-align: center; }
 .modal input { width: 100%; }
+
+/* ---------- yarış ---------- */
+.yaris-kisiler { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.yaris-kisi { padding: 5px 10px; border-radius: 999px; background: var(--kart); border: 1px solid var(--kenar); font-weight: 700; font-size: 14px; }
+.yaris-kisi b { font-family: var(--el); font-size: 18px; font-weight: 400; color: var(--murekkep); }
+.yaris-kisi.ben { border-color: var(--murekkep); background: var(--murekkep-acik); }
+.yaris-kisi.cekildi { opacity: .5; text-decoration: line-through; }
+.yaris-zaman { margin-left: auto; font-size: 12px; }
+.sure.yaris-sure { min-width: 70px; font-size: 22px; }
+.skor-serit span b { font-family: var(--el); font-size: 22px; font-weight: 400; }

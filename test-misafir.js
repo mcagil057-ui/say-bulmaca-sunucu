@@ -41,6 +41,28 @@ function istemci(cihaz, ad) {
   const oda = await ali.post('/api/oda');
   await ayse.post('/api/katil', { kod: oda.kod });
   esit((await ayse.get(`/api/bekle?kod=${oda.kod}&surum=-1`)).durum.oda.oyuncular.map(o => o.ad), ['Ali Can', 'Ayşe'], 'odada adlar');
+  // Yarış: klasikte 3. kişi giremez, yarışta girer; ilk bulan kazanır
+  const can = istemci('0011223344556677889900aa', { v: 'Can' });
+  const oda2 = await ali.post('/api/oda');
+  await ayse.post('/api/katil', { kod: oda2.kod });
+  esit((await can.post('/api/katil', { kod: oda2.kod })).durum, 409, 'klasik odaya 3. kişi giremez');
+  await ali.post('/api/eylem', { kod: oda2.kod, tur: 'ayar', ayar: { oyunTuru: 'yaris' } });
+  esit((await can.post('/api/katil', { kod: oda2.kod })).durum, 200, 'yarış odasına 3. kişi girer');
+  esit((await ali.post('/api/eylem', { kod: oda2.kod, tur: 'ayar', ayar: { oyunTuru: 'klasik' } })).durum, 400, '3 kişiyken klasiğe dönülmez');
+  await ali.post('/api/eylem', { kod: oda2.kod, tur: 'basla' });
+  const yd = (await ayse.get(`/api/bekle?kod=${oda2.kod}&surum=-1`)).durum.mac;
+  esit([yd.tur, yd.gizli, yd.oyuncular.length], ['yaris', null, 3], 'yarış başladı, sayı gizli');
+  const yayar = Oyun.ayarDuzelt({ basamak: yd.ayar.basamak });
+  let yg = [];
+  for (let i = 0; i < 20; i++) {
+    await can.post('/api/eylem', { kod: oda2.kod, tur: 'tahmin', sayi: Oyun.botTahmin('zor', yayar, yg) });
+    const m = (await can.get(`/api/bekle?kod=${oda2.kod}&surum=-1`)).durum.mac;
+    yg = m.ben.sorular;
+    if (m.faz === 'bitti') break;
+  }
+  const son = (await ali.get(`/api/bekle?kod=${oda2.kod}&surum=-1`)).durum;
+  esit([son.mac.faz, son.mac.sonuc.kazanan, son.oda.oyuncular.find(o => o.ad === 'Can').galibiyet], ['bitti', 'Can', 1], 'yarışta ilk bulan kazandı, skora yazıldı');
+  esit((await ayse.post('/api/eylem', { kod: oda2.kod, tur: 'tahmin', sayi: '123' })).durum, 400, 'yarış bitince soru yok');
   sunucu.kill();
   console.log(hata ? `\n${hata} HATA` : '\nMisafir denetimleri geçti');
   process.exit(hata ? 1 : 0);
