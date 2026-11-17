@@ -13,9 +13,10 @@
  *    girilemez. Cihaz şu izlerle tanınır (biri tutsa yeter):
  *      tel: telefonun/tarayıcının kendi rastgele kimliği
  *      and: Android uygulamasının gerçek cihaz kimliği (yeni APK'da)
- *      iz:  ağ adresi + telefonun değişmeyen özellikleri (uygulama ile
- *           tarayıcıda aynı). Sınır: aynı Wi-Fi'da aynı model iki telefon
- *           tek cihaz sayılabilir.
+ *    "Ağ adresi + telefonun özellikleri" izi 17.11'de kullanıcı isteğiyle
+ *    KALDIRILDI: aynı Wi-Fi'daki aynı model iki telefonu (ör. iki aynı iPhone)
+ *    tek cihaz sanıp masum birini 14 gün kilitleyebiliyordu. Bedeli: aynı
+ *    telefonda uygulama ile tarayıcı ayrı cihaz sayılır.
  *  - İsim en fazla 3 günde bir değiştirilir.
  */
 'use strict';
@@ -73,10 +74,8 @@ function cihazAnahtarlari(istek, v) {
   const l = [];
   const tel = String(v.tel || '').slice(0, 64);
   const and = String(v.cihazNo || '').slice(0, 64);
-  const iz = String(v.iz || '').slice(0, 400);
   if (tel) l.push('tel:' + ozet(tel).slice(0, 24));
   if (and) l.push('and:' + ozet(and).slice(0, 24));
-  if (iz) l.push('iz:' + ozet(istemciIp(istek) + '|' + iz).slice(0, 24));
   return l;
 }
 

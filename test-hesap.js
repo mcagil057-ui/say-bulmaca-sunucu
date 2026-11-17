@@ -68,10 +68,13 @@ function istemci(tel, iz, ip) {
   esit([dg.durum, dg.hesap && dg.hesap.ad, !!dg.oturum], [200, 'Ali', true], 'hesap açıldı, oturum verildi');
   tel1.oturumKoy(dg.oturum);
 
-  // Aynı telefon, tarayıcıdan (başka tel kimliği, aynı iz ve ağ) başka hesap: kilitli
-  const tel1Site = istemci('telefon-1-chrome', 'v1|393x873|2.75|8|8|5|Linux|Europe/Istanbul|Mali', '88.1.1.1');
-  const kilit = await tel1Site.post('/api/giris/kod', { mail: 'ikinci@ornek.com' });
+  // Aynı tarayıcıda (aynı tel kimliği) başka hesap: kilitli
+  const tel1Ayni = istemci('telefon-1-uygulama', 'v1|393x873|2.75|8|8|5|Linux|Europe/Istanbul|Mali', '88.1.1.1');
+  const kilit = await tel1Ayni.post('/api/giris/kod', { mail: 'ikinci@ornek.com' });
   esit([kilit.durum, kilit.kilit], [403, true], 'aynı cihazda 14 gün başka hesap yok');
+  // Aynı Wi-Fi'da AYNI MODEL başka telefon (aynı özellikler, başka tel kimliği): kilitlenmemeli
+  const ikiz = istemci('ikiz-telefon', 'v1|393x873|2.75|8|8|5|Linux|Europe/Istanbul|Mali', '88.1.1.1');
+  esit((await ikiz.post('/api/giris/kod', { mail: 'kardes@ornek.com' })).durum, 200, 'aynı evde aynı model telefon kilitlenmiyor');
   console.log('      mesaj:', kilit.hata);
   esit(/@/.test(kilit.hata), false, 'kilit mesajında başkasının maili yok');
   // Aynı telefon tarayıcıdan AYNI hesapla girebilir
