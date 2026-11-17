@@ -92,8 +92,8 @@ function siralamaHTML() {
 
 function gunlukPaylasMetin() {
   const g = S.g;
-  const satir = k => '🟢'.repeat(k.arti) + '🟡'.repeat(k.eksi) + '⚪'.repeat(g.basamak - k.arti - k.eksi);
-  return `Sayı Bulmaca · Günün bulmacası ${gunYazi(g.gun)}\n${g.tahminler.length} soruda buldum!\n${g.tahminler.map(satir).join('\n')}\n${location.origin}/`;
+  // Nasıl çözüldüğü (sorular, cevaplar) paylaşılmaz: yalnızca gün, soru sayısı ve meydan okuma
+  return `🧩 Sayı Bulmaca · Günün bulmacası\n📅 ${gunYazi(g.gun)}\n🎯 ${g.tahminler.length} soruda buldum!\n\nBakalım sen kaç soruda çözeceksin? 😏\n${location.origin}/`;
 }
 
 const GUNLUK_EYLEM = {
