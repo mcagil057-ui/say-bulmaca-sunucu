@@ -80,6 +80,18 @@ function cihazAnahtarlari(istek, v) {
 }
 
 /**
+ * Mail sağlığı (düzenli kontrol için, gizli bilgi yok): son başarılı gönderim
+ * ve son hata zamanı + Brevo'nun durum kodu. Sunucu yeniden başlayınca sıfırlanır.
+ */
+const posta = { sonBasari: 0, sonHata: 0, sonHataKodu: null };
+function postaDurumu() {
+  const s = Date.now();
+  const yeniHata = posta.sonHata && s - posta.sonHata < GUN && posta.sonHata > posta.sonBasari;
+  return { sorun: !!yeniHata, sonHataKodu: yeniHata ? posta.sonHataKodu : null,
+    sonBasari: posta.sonBasari ? new Date(posta.sonBasari).toISOString() : null };
+}
+
+/**
  * Brevo ile kod gönder. Mail servisi kurulu değilse kod YALNIZCA bu
  * bilgisayardan gelen isteğe geri verilir (deneme); başka her yerde hata.
  */
@@ -91,7 +103,9 @@ async function mailGonder(istek, mail, kod) {
     console.log(`[deneme] ${mail} giriş kodu: ${kod}`);
     return { deneme: kod };
   }
-  const r = await fetch('https://api.brevo.com/v3/smtp/email', {
+  let r;
+  try {
+    r = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
     headers: { 'api-key': anahtar, 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({
@@ -104,11 +118,18 @@ async function mailGonder(istek, mail, kod) {
         <p>Kod 10 dakika geçerli. Bu girişi sen istemediysen bu maili yok sayabilirsin.</p></div>`,
     }),
     signal: AbortSignal.timeout(10000),
-  });
+    });
+  } catch (e) {
+    posta.sonHata = Date.now(); posta.sonHataKodu = 'baglanti';
+    console.error('Brevo bağlantı hatası', e.message);
+    throw hata('Kod gönderilemedi, biraz sonra tekrar dene', 502);
+  }
   if (!r.ok) {
+    posta.sonHata = Date.now(); posta.sonHataKodu = r.status;
     console.error('Brevo hatası', r.status, (await r.text()).slice(0, 300));
     throw hata('Kod gönderilemedi, biraz sonra tekrar dene', 502);
   }
+  posta.sonBasari = Date.now();
   return {};
 }
 
@@ -239,4 +260,4 @@ function hesapModulu(depo) {
   };
 }
 
-module.exports = { hesapModulu, cihazAnahtarlari, istemciIp, yereldenMi, adHatasi, CIHAZ_KILIDI, AD_ARALIGI };
+module.exports = { hesapModulu, cihazAnahtarlari, istemciIp, yereldenMi, adHatasi, postaDurumu, CIHAZ_KILIDI, AD_ARALIGI };

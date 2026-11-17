@@ -29,7 +29,7 @@ const os = require('os');
 const Oyun = require('./public/oyun.js');
 const Gunluk = require('./gunluk-sunucu.js');
 const { depoAc } = require('./depo.js');
-const { hesapModulu, yereldenMi } = require('./hesap.js');
+const { hesapModulu, yereldenMi, postaDurumu } = require('./hesap.js');
 let Hesap, GunlukOyun, DEPO_TURU; // depo açılınca kurulur (aşağıda)
 
 /**
@@ -295,7 +295,7 @@ const sunucu = http.createServer(async (istek, yanit) => {
     // Başka sitelerden gelen istekler (CORS) kabul edilmez: uygulama ve site aynı adresten açılır
     if (istek.method === 'OPTIONS') { yanit.writeHead(405); return yanit.end(); }
     if (yol === '/api/saglik') {
-      return json(yanit, 200, { tamam: true, acilis: new Date(ACILIS).toISOString(), hazir: DEPO_TURU === 'postgres' && !!process.env.BREVO_API_KEY && !!process.env.MAIL_GONDEREN });
+      return json(yanit, 200, { tamam: true, acilis: new Date(ACILIS).toISOString(), hazir: DEPO_TURU === 'postgres' && !!process.env.BREVO_API_KEY && !!process.env.MAIL_GONDEREN, mail: postaDurumu() });
     }
 
     // ---- giriş (oturumsuz)
