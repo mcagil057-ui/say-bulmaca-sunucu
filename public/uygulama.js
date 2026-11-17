@@ -41,7 +41,7 @@ const S = {
   mesgul: false,
   botSeviye: depo.al('sb_bot', 'orta'),
   botAyar: Oyun.ayarDuzelt(jsonAl('sb_botayar', {})),
-  botMod: depo.al('sb_botmod', 'klasik'),        // 'klasik' (1 bot) | 'yaris' (1–3 bot)
+  botMod: 'klasik',          // 'klasik' (1 bot) | 'yaris' (1–3 bot) — yarış şimdilik kapalı (BOT_YARIS_ACIK)
   botYaris: jsonAl('sb_botyaris', { kolay: 0, orta: 1, zor: 0 }),
   botHiz: depo.al('sb_bothiz', 'uyumlu'),
   katilKod: '',
@@ -700,7 +700,14 @@ function uyumAciklama() {
     ${Math.abs(c - 1) < 0.02 ? '' : '<button class="sec ince-sec" data-e="uyumSifirla">Sıfırla</button>'}`;
 }
 
+/*
+ * Botlarla yarış (1–3 bot, uyumlu hız) 17.11.2026'da kullanıcı isteğiyle
+ * şimdilik KAPATILDI ("tam istediğim gibi olmadı"). Kod duruyor; açmak için true yap.
+ */
+const BOT_YARIS_ACIK = false;
+
 function botModSecimi() {
+  if (!BOT_YARIS_ACIK) return '';
   return `<div class="secenekler genis">
     <button class="sec ${S.botMod === 'klasik' ? 'secili' : ''}" data-e="botMod" data-v="klasik">Klasik (1 bot)</button>
     <button class="sec ${S.botMod === 'yaris' ? 'secili' : ''}" data-e="botMod" data-v="yaris">🏁 Yarış (1–3 bot)</button>
@@ -1153,7 +1160,7 @@ const EYLEM = {
     } else S.kaynak = new YerelOda(S.botSeviye, S.botAyar);
     ciz();
   },
-  botMod(v) { S.botMod = v === 'yaris' ? 'yaris' : 'klasik'; depo.koy('sb_botmod', S.botMod); ciz(); },
+  botMod(v) { S.botMod = BOT_YARIS_ACIK && v === 'yaris' ? 'yaris' : 'klasik'; depo.koy('sb_botmod', S.botMod); ciz(); },
   botHiz(v) { if (v in BOT_HIZ.hiz) { S.botHiz = v; depo.koy('sb_bothiz', v); ciz(); } },
   uyumSifirla() { depo.koy('sb_uyum', '1'); bildir('Bot hızı normale döndü'); ciz(); },
   botSayi(v) {
