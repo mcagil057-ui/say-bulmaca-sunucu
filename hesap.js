@@ -40,6 +40,9 @@ function adHatasi(ad) {
   if (/[<>]/.test(ad)) return 'Adda < ve > kullanılamaz';
   return null;
 }
+/** Aynı ad kuralı için karşılaştırma biçimi: "ALİ ", "ali" ve "Ali" aynı ad. */
+const adAnahtari = ad => String(ad || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('tr');
+
 function hata(mesaj, kod, ek) { return Object.assign(new Error(mesaj), { kod: kod || 400 }, ek || {}); }
 function gunSay(ms) { return Math.max(1, Math.ceil(ms / GUN)); }
 function esitMi(a, b) {
@@ -161,6 +164,21 @@ function hesapModulu(depo) {
     misafirIp.temizle(s);
   }, 10 * 60 * 1000).unref();
 
+  /** Bu adı başka bir hesap kullanıyor mu? (bir adı ilk alan kullanır) */
+  async function adAlinmis(ad, haricId) {
+    const a = adAnahtari(ad);
+    return (await depo.adlar()).some(x => x.id !== haricId && adAnahtari(x.ad) === a);
+  }
+  /** Boş bir "Oyuncu-1234" adı bul. */
+  async function bosOyuncuAdi() {
+    const kullanilan = new Set((await depo.adlar()).map(x => adAnahtari(x.ad)));
+    for (let i = 0; i < 50; i++) {
+      const ad = 'Oyuncu-' + String(crypto.randomInt(1000, 10000));
+      if (!kullanilan.has(adAnahtari(ad))) return ad;
+    }
+    return 'Oyuncu-' + crypto.randomBytes(3).toString('hex');
+  }
+
   /** Bu cihaz son 14 günde başka bir hesaba bağlandıysa hata. */
   async function kilitDenetle(anahtarlar, hesapId) {
     const simdi = Date.now();
@@ -212,6 +230,7 @@ function hesapModulu(depo) {
       if (!hesap) {
         const h = adHatasi(v.ad);
         if (h) { await depo.kodIade(mail); throw hata(h, 400, { adGerekli: true }); } // doğru kod: hak geri verilir, ad yazılıp yeniden gönderilir
+        if (await adAlinmis(v.ad, -1)) { await depo.kodIade(mail); throw hata('Bu ad başkası tarafından alınmış, başka bir ad yaz', 400, { adGerekli: true }); }
       }
       const anahtarlar = cihazAnahtarlari(istek, v);
       await kilitDenetle(anahtarlar, hesap ? hesap.id : -1);
@@ -250,6 +269,7 @@ function hesapModulu(depo) {
       const kalan = hesap.adDegisti + AD_ARALIGI - Date.now();
       if (ad === hesap.ad) return this.goster(hesap);
       if (kalan > 0) throw hata(`İsmini ${gunSay(kalan)} gün sonra değiştirebilirsin (3 günde bir)`);
+      if (await adAlinmis(ad, hesap.id)) throw hata('Bu ad başkası tarafından alınmış');
       const simdi = Date.now();
       await depo.adDegistir(hesap.id, ad, simdi);
       hesap.ad = ad; hesap.adDegisti = simdi;
@@ -259,8 +279,9 @@ function hesapModulu(depo) {
 
     /**
      * Mail ile giriş KAPALIYKEN: telefonun kendi kimliğiyle (X-Cihaz) otomatik
-     * "misafir" hesap. Kayıtlar yine veritabanında kalıcıdır; ad serbestçe
-     * değişir (X-Ad). Mail girişi yeniden açılınca bu hesaplar dokunulmadan kalır.
+     * "misafir" hesap. Kayıtlar yine veritabanında kalıcıdır. Ad yalnızca
+     * hesap açılırken X-Ad'dan alınır (boşsa ya da alınmışsa "Oyuncu-1234");
+     * sonra /api/ad ile değişir. Mail girişi yeniden açılınca bu hesaplar kalır.
      */
     async misafir(istek) {
       const tel = String(istek.headers['x-cihaz'] || '');
@@ -276,14 +297,25 @@ function hesapModulu(depo) {
         const ip = istemciIp(istek);
         if (misafirIp.say(ip, s) >= 30) throw hata('Çok fazla yeni kayıt, biraz sonra dene', 429);
         misafirIp.ekle(ip, s);
+        if (ad === 'Oyuncu' || await adAlinmis(ad, -1)) ad = await bosOyuncuAdi();
         try { h = await depo.hesapOlustur(anahtar, ad, s); }
         catch (e) { h = await depo.hesapMail(anahtar); if (!h) throw e; } // aynı anda iki istek
-      } else if (h.ad !== ad) {
-        await depo.adDegistir(h.id, ad, h.adDegisti);
-        h.ad = ad;
       }
       misafirBellek.set(anahtar, { hesap: h, zaman: s });
       return h;
+    },
+
+    /** Misafirin adı: 3 gün kuralı yok ama aynı ad kuralı var. */
+    async misafirAdDegistir(hesap, ad) {
+      const h = adHatasi(ad);
+      if (h) throw hata(h);
+      ad = String(ad).trim().replace(/\s+/g, ' ');
+      if (ad === hesap.ad) return this.goster(hesap);
+      if (await adAlinmis(ad, hesap.id)) throw hata('Bu ad başkası tarafından alınmış');
+      await depo.adDegistir(hesap.id, ad, hesap.adDegisti);
+      hesap.ad = ad;
+      for (const b of misafirBellek.values()) if (b.hesap.id === hesap.id) b.hesap.ad = ad;
+      return this.goster(hesap);
     },
 
     /** Telefona gidecek hesap bilgisi. */

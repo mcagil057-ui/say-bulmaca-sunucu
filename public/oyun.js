@@ -22,7 +22,8 @@
     otoCevap: true,  // cevabı uygulama verir (kapalıysa oyuncu elle yazar)
     oyunTuru: 'klasik', // 'klasik' (2 kişi, herkes sayı tutar) | 'yaris' (2–4 kişi, tek ortak sayı)
   };
-  const SURELER = [0, 30, 45, 60, 90, 120];
+  const SURELER = [0, 15, 30, 45, 60, 90, 120];   // 15 sn = hızlı mod
+  const TEPKILER = ['😮', '😂', '👏', '🤔', '🔥', '😅'];
   // Botların eski cevapları hatırlama olasılığı (test.js ile ayarlandı).
   const HATIRLAMA = { kolay: 0.1, orta: 0.5 };
 
@@ -269,6 +270,19 @@
       return null;
     }
 
+    /**
+     * Rakibin SORUSUNA emoji tepkisi (yalnızca kendi sayına sorulan sorulara).
+     * Aynı emojiye yeniden basınca kalkar.
+     */
+    tepki(i, no, emoji) {
+      if (TEPKILER.indexOf(emoji) < 0) return 'Bu tepki yok';
+      const k = this.kayitlar.find(x => x.no === Number(no));
+      if (!k || !k.tahmin) return 'Soru bulunamadı';
+      if (k.kim === i) return 'Kendi sorana tepki veremezsin';
+      k.tepki = k.tepki === emoji ? null : emoji;
+      return null;
+    }
+
     teslim(i) {
       if (this.faz === 'bitti') return null;
       this._bitir(1 - i, 'teslim');
@@ -435,5 +449,5 @@
     }
   }
 
-  return { VARSAYILAN_AYAR, SURELER, ayarDuzelt, puanla, sayiHatasi, tumSayilar, rastgeleSayi, botTahmin, analizEt, botKacSoruda, Mac, Yaris };
+  return { VARSAYILAN_AYAR, SURELER, TEPKILER, ayarDuzelt, puanla, sayiHatasi, tumSayilar, rastgeleSayi, botTahmin, analizEt, botKacSoruda, Mac, Yaris };
 });

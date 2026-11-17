@@ -30,7 +30,7 @@ const Oyun = require('./public/oyun.js');
 const Gunluk = require('./gunluk-sunucu.js');
 const { depoAc } = require('./depo.js');
 const { hesapModulu, yereldenMi, postaDurumu } = require('./hesap.js');
-let Hesap, GunlukOyun, DEPO_TURU; // depo açılınca kurulur (aşağıda)
+let Hesap, GunlukOyun, DEPO_TURU, DEPO; // depo açılınca kurulur (aşağıda)
 /*
  * Mail ile giriş açık mı? Render'da MAIL_GIRIS=1 ise açık (hesap + kod +
  * 14 gün cihaz kilidi + ad 3 günde bir). Değilse her telefon kendi
@@ -119,7 +119,7 @@ function durum(oda, i) {
       ayar: oda.ayar,
       kurucuBen: i === 0,
       macNo: oda.macSayisi,
-      oyuncular: oda.oyuncular.map((o, k) => ({ ad: o.ad, bagli: bagliMi(o), ben: k === i, galibiyet: oda.skor[o.id] || 0 })),
+      oyuncular: oda.oyuncular.map((o, k) => ({ ad: o.ad, bagli: bagliMi(o), ben: k === i, galibiyet: oda.skor[o.id] || 0, yaziyor: o.yaziyor || 0 })),
       berabere: oda.berabere,
       faz: oda.mac ? 'mac' : 'lobi',
     },
@@ -140,7 +140,16 @@ function skorIsle(oda) {
   if (!m || m.faz !== 'bitti' || m.skorlandi) return;
   m.skorlandi = true;
   if (m.tur === 'yaris') {   // yarışta kazanan kimlikle tutulur
-    if (m.kazanan != null) oda.skor[m.kazanan] = (oda.skor[m.kazanan] || 0) + 1;
+    if (m.kazanan != null) {
+      oda.skor[m.kazanan] = (oda.skor[m.kazanan] || 0) + 1;
+      // Yarış rekoru: kazananın süresi (oyuncu kimliği "h<hesap no>")
+      const hesapId = Number(String(m.kazanan).slice(1));
+      const kazananO = m.oyuncular.find(o => o.id === m.kazanan);
+      if (DEPO && hesapId && kazananO) {
+        DEPO.yarisKaydet(hesapId, m.sonuc.sure, kazananO.sorular.length, m.oyuncular.length, m.ayar.basamak, Date.now())
+          .catch(e => console.error('Yarış rekoru yazılamadı', e.message));
+      }
+    }
     return;
   }
   const k = m.sonuc.kazanan;
@@ -230,6 +239,14 @@ function eylem(oda, i, v) {
     case 'tahmin': return !m ? 'Maç yok' : yarisMi(oda) ? m.tahminEt(oda.oyuncular[i].id, String(v.sayi)) : m.tahminEt(i, String(v.sayi));
     case 'cevap': return !m ? 'Maç yok' : yarisMi(oda) ? 'Yarışta cevaplar otomatik' : m.cevapVer(i, v.arti, v.eksi);
     case 'teslim': return !m ? 'Maç yok' : yarisMi(oda) ? m.cekil(oda.oyuncular[i].id) : m.teslim(i);
+    case 'tepki': return !m ? 'Maç yok' : yarisMi(oda) ? 'Yarışta tepki yok' : m.tepki(i, v.no, String(v.emoji || ''));
+    case 'yaziyor': {
+      // Sıradaki oyuncu sayı yazıyor: rakibi "yazıyor…" görsün (en sık 1 sn'de bir)
+      const o = oda.oyuncular[i];
+      if (Date.now() - (o.yaziyor || 0) < 1000) return 'Yavaş';
+      o.yaziyor = Date.now();
+      return null;
+    }
     case 'mesaj': {
       const o = oda.oyuncular[i];
       const metin = String(v.metin || '').replace(/\s+/g, ' ').trim().slice(0, MESAJ_UZUNLUK);
@@ -374,6 +391,19 @@ const sunucu = http.createServer(async (istek, yanit) => {
 
     if (yol === '/api/ben') return json(yanit, 200, { hesap: Hesap.goster(hesap) });
 
+    // Yarış rekorları: her oyuncu bir kez, en iyi süresiyle
+    if (yol === '/api/yaris-siralama' && istek.method === 'GET') {
+      const basamak = [3, 4, 5].includes(Number(url.searchParams.get('basamak'))) ? Number(url.searchParams.get('basamak')) : 3;
+      const enIyi = new Map();
+      for (const r of await DEPO.yarisKayitlari(basamak)) {
+        const e = enIyi.get(r.hesapId);
+        if (!e || r.sure < e.sure) enIyi.set(r.hesapId, r);
+      }
+      const liste = [...enIyi.values()].sort((a, b) => a.sure - b.sure || a.zaman - b.zaman)
+        .map(r => ({ ad: r.ad, sure: r.sure, soru: r.soru, kisi: r.kisi, zaman: r.zaman, ben: r.hesapId === hesap.id }));
+      return json(yanit, 200, { basamak, liste: liste.slice(0, 30), benim: liste.findIndex(x => x.ben) + 1 || null });
+    }
+
     if (yol === '/api/gunluk' && istek.method === 'GET') return json(yanit, 200, await GunlukOyun.durum(Gunluk.bugun(), hesap));
 
     // Uzun bekleme: telefonun bildiği sürüm eskiyse hemen, değilse değişince cevap ver
@@ -402,10 +432,9 @@ const sunucu = http.createServer(async (istek, yanit) => {
       try { v = await govdeOku(istek); } catch (e) { return json(yanit, e.kod || 400, { hata: e.message }); }
 
       if (yol === '/api/cikis') { await Hesap.cikis(istek); return json(yanit, 200, { tamam: true }); }
-      if (yol === '/api/ad' && !MAIL_GIRIS) return json(yanit, 404, { hata: 'Yok' }); // misafirde ad X-Ad ile serbest
       if (yol === '/api/ad') {
         try {
-          const h = await Hesap.adDegistir(hesap, v.ad);
+          const h = MAIL_GIRIS ? await Hesap.adDegistir(hesap, v.ad) : await Hesap.misafirAdDegistir(hesap, v.ad);
           for (const oda of odalar.values()) { const o = oda.oyuncular.find(x => x.id === id); if (o) { o.ad = h.ad; yayinla(oda); } }
           return json(yanit, 200, { hesap: h });
         } catch (e) { if (!e.kod) throw e; return json(yanit, e.kod, { hata: e.message }); }
@@ -489,6 +518,7 @@ setInterval(() => {
 // Veritabanını aç, sonra dinlemeye başla
 depoAc(process.env.DATABASE_URL).then(depo => {
   DEPO_TURU = depo.tur;
+  DEPO = depo;
   Hesap = hesapModulu(depo);
   GunlukOyun = Gunluk.gunlukModulu(depo);
   if (depo.tur === 'bellek') console.log('UYARI: DATABASE_URL yok, hesaplar bellekte (sunucu kapanınca silinir).');

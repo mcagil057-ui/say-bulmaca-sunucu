@@ -40,6 +40,15 @@ CREATE TABLE IF NOT EXISTS gunluk (
   tahminler TEXT NOT NULL,
   cozuldu BIGINT,
   PRIMARY KEY (gun, hesap_id)
+);
+CREATE TABLE IF NOT EXISTS yaris_rekor (
+  id SERIAL PRIMARY KEY,
+  hesap_id INTEGER NOT NULL,
+  sure BIGINT NOT NULL,
+  soru INTEGER NOT NULL,
+  kisi INTEGER NOT NULL,
+  basamak INTEGER NOT NULL,
+  zaman BIGINT NOT NULL
 );`;
 
 /** Bağlantı havuzu: Neon ya da bellekte sahte Postgres. */
@@ -75,6 +84,8 @@ async function depoAc(adres) {
       return hesapYap((await q('INSERT INTO hesaplar (mail, ad, ad_degisti, olusturma) VALUES ($1, $2, $3, $3) RETURNING *', [mail, ad, zaman]))[0]);
     },
     async adDegistir(id, ad, zaman) { await q('UPDATE hesaplar SET ad = $2, ad_degisti = $3 WHERE id = $1', [id, ad, zaman]); },
+    /** Bütün adlar (aynı ad kuralı için; aile ölçeğinde birkaç yüz satır). */
+    async adlar() { return (await q('SELECT id, ad FROM hesaplar')).map(r => ({ id: Number(r.id), ad: r.ad })); },
 
     // ---- oturumlar (anahtar = oturum kodunun özeti; kodun kendisi saklanmaz)
     async oturumEkle(anahtar, hesapId, zaman) { await q('INSERT INTO oturumlar (anahtar, hesap_id, olusturma) VALUES ($1, $2, $3)', [anahtar, hesapId, zaman]); },
@@ -132,6 +143,16 @@ async function depoAc(adres) {
                ON CONFLICT (gun, hesap_id) DO UPDATE SET tahminler = EXCLUDED.tahminler, cozuldu = EXCLUDED.cozuldu`,
         [gun, hesapId, JSON.stringify(tahminler), cozuldu]);
     },
+    // ---- yarış rekorları (yalnızca arkadaşlarla oynanan yarışların kazananları)
+    async yarisKaydet(hesapId, sure, soru, kisi, basamak, zaman) {
+      await q('INSERT INTO yaris_rekor (hesap_id, sure, soru, kisi, basamak, zaman) VALUES ($1, $2, $3, $4, $5, $6)', [hesapId, sure, soru, kisi, basamak, zaman]);
+    },
+    async yarisKayitlari(basamak) {
+      return (await q(`SELECT r.hesap_id, r.sure, r.soru, r.kisi, r.zaman, h.ad FROM yaris_rekor r JOIN hesaplar h ON h.id = r.hesap_id
+                       WHERE r.basamak = $1`, [basamak]))
+        .map(r => ({ hesapId: Number(r.hesap_id), sure: sayi(r.sure), soru: Number(r.soru), kisi: Number(r.kisi), zaman: sayi(r.zaman), ad: r.ad }));
+    },
+
     async gunlukCozenler(gun) {
       return (await q(`SELECT g.hesap_id, g.tahminler, g.cozuldu, h.ad FROM gunluk g JOIN hesaplar h ON h.id = g.hesap_id
                        WHERE g.gun = $1 AND g.cozuldu IS NOT NULL`, [gun]))

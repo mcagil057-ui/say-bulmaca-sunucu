@@ -70,6 +70,16 @@ esit(an.every(x => x.olabilirdi), true, 'analiz: hepsi tutarlı soru');
 const an2 = O.analizEt(O.ayarDuzelt({}), [{ tahmin: '123', arti: 0, eksi: 0 }, { tahmin: '124', arti: 0, eksi: 0 }]);
 esit(an2[1].olabilirdi, false, 'analiz: çelişkili soru yakalandı');
 
+// Emoji tepkisi: yalnızca rakibin sorusuna, aynı emoji tekrar basılınca kalkar
+const mt = new O.Mac({}, ['A', 'B'], 0);
+mt.gizliBelirle(0, '123'); mt.gizliBelirle(1, '456'); mt.tahminEt(0, '789');
+esit(mt.tepki(0, 1, '😮'), 'Kendi sorana tepki veremezsin', 'tepki: kendi sorusuna olmaz');
+esit([mt.tepki(1, 1, '😮'), mt.kayitlar[0].tepki], [null, '😮'], 'tepki: rakibin sorusuna verildi');
+esit(mt.tepki(1, 1, '💩'), 'Bu tepki yok', 'tepki: listede olmayan emoji olmaz');
+mt.tepki(1, 1, '😮');
+esit(mt.kayitlar[0].tepki, null, 'tepki: aynı emoji tekrar basılınca kalkar');
+esit(O.ayarDuzelt({ turSure: 15 }).turSure, 15, 'hızlı mod: 15 sn tur');
+
 // Yarış: 3 kişi, tek sayı, aynı anda; ilk bulan kazanır, oyun hemen biter
 let ys = 0;
 const y = new O.Yaris({ basamak: 3 }, [{ id: 'a', ad: 'Ali' }, { id: 'b', ad: 'Ayşe' }, { id: 'c', ad: 'Can' }], () => ys);

@@ -1,5 +1,6 @@
-/* Sayı Bulmaca — kareli defter görünümü (gece: kara tahta) */
-:root {
+/* Sayı Bulmaca — temalar. Varsayılan: telefona göre (açık: Defter, koyu: Kara tahta).
+   Oyuncu seçerse <html data-tema="..."> ile sabitlenir. */
+:root, :root[data-tema="defter"] {
   --kagit: #f7f5ee;
   --kare: rgba(64, 110, 170, .10);
   --kart: #ffffff;
@@ -14,30 +15,41 @@
   --turuncu-acik: #fbe9d8;
   --kirmizi: #cf3b3b;
   --kirmizi-acik: #fbe1e1;
+  --ana-yazi: #ffffff;   /* mürekkep renkli düğmenin yazısı */
   --golge: 0 1px 2px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.05);
   --el: 'Patrick Hand', 'Comic Sans MS', cursive;
   --govde: 'Nunito', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
-    --kagit: #1c2524;
-    --kare: rgba(255, 255, 255, .045);
-    --kart: #253130;
-    --kenar: #3a4847;
-    --yazi: #ecf0ea;
-    --soluk: #9aa7a3;
-    --murekkep: #8db8ff;
-    --murekkep-acik: #263a55;
-    --yesil: #6fd69a;
-    --yesil-acik: #1f3d2d;
-    --turuncu: #f2a65e;
-    --turuncu-acik: #45311e;
-    --kirmizi: #ff7b7b;
-    --kirmizi-acik: #4a2626;
-    --golge: 0 1px 2px rgba(0,0,0,.3);
-    color-scheme: dark;
+  :root:not([data-tema]) {
+    --kagit: #1c2524; --kare: rgba(255, 255, 255, .045); --kart: #253130; --kenar: #3a4847;
+    --yazi: #ecf0ea; --soluk: #9aa7a3; --murekkep: #8db8ff; --murekkep-acik: #263a55;
+    --yesil: #6fd69a; --yesil-acik: #1f3d2d; --turuncu: #f2a65e; --turuncu-acik: #45311e;
+    --kirmizi: #ff7b7b; --kirmizi-acik: #4a2626; --ana-yazi: #0d1a2e;
+    --golge: 0 1px 2px rgba(0,0,0,.3); color-scheme: dark;
   }
+}
+:root[data-tema="tahta"] {
+  --kagit: #1c2524; --kare: rgba(255, 255, 255, .045); --kart: #253130; --kenar: #3a4847;
+  --yazi: #ecf0ea; --soluk: #9aa7a3; --murekkep: #8db8ff; --murekkep-acik: #263a55;
+  --yesil: #6fd69a; --yesil-acik: #1f3d2d; --turuncu: #f2a65e; --turuncu-acik: #45311e;
+  --kirmizi: #ff7b7b; --kirmizi-acik: #4a2626; --ana-yazi: #0d1a2e;
+  --golge: 0 1px 2px rgba(0,0,0,.3); color-scheme: dark;
+}
+:root[data-tema="gece"] {
+  --kagit: #0f1729; --kare: rgba(120, 160, 255, .06); --kart: #18233a; --kenar: #2b3a5a;
+  --yazi: #e6ecff; --soluk: #93a0c0; --murekkep: #7aa2ff; --murekkep-acik: #1f2d4d;
+  --yesil: #5fd38f; --yesil-acik: #173527; --turuncu: #ffb15e; --turuncu-acik: #3d2c18;
+  --kirmizi: #ff7b8a; --kirmizi-acik: #45202a; --ana-yazi: #0b1226;
+  --golge: 0 1px 2px rgba(0,0,0,.35); color-scheme: dark;
+}
+:root[data-tema="seker"] {
+  --kagit: #fff5f8; --kare: rgba(230, 90, 140, .08); --kart: #ffffff; --kenar: #f1cfdc;
+  --yazi: #3a2430; --soluk: #8a6a78; --murekkep: #d14d86; --murekkep-acik: #fde3ee;
+  --yesil: #2f9e6b; --yesil-acik: #dff5ea; --turuncu: #d9822b; --turuncu-acik: #fdebd8;
+  --kirmizi: #d94350; --kirmizi-acik: #fde1e3; --ana-yazi: #ffffff;
+  --golge: 0 1px 2px rgba(0,0,0,.05), 0 4px 14px rgba(209,77,134,.08); color-scheme: light;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -85,8 +97,7 @@ input:focus { border-color: var(--murekkep); }
   cursor: pointer; transition: transform .08s, background .15s;
 }
 .dugme:active:not(:disabled) { transform: scale(.98); }
-.dugme.ana { background: var(--murekkep); border-color: var(--murekkep); color: #fff; }
-@media (prefers-color-scheme: dark) { .dugme.ana { color: #0d1a2e; } }
+.dugme.ana { background: var(--murekkep); border-color: var(--murekkep); color: var(--ana-yazi); }
 .dugme.ince { background: transparent; border-color: transparent; color: var(--soluk); font-weight: 700; }
 .dugme.tehlike { color: var(--kirmizi); }
 .dugme:disabled { opacity: .5; cursor: default; }
@@ -101,8 +112,7 @@ input:focus { border-color: var(--murekkep); }
   min-width: 44px; padding: 9px 12px; border-radius: 10px; border: 1.5px solid var(--kenar);
   background: var(--kagit); font-weight: 800; cursor: pointer; font-size: 15px;
 }
-.sec.secili { background: var(--murekkep); border-color: var(--murekkep); color: #fff; }
-@media (prefers-color-scheme: dark) { .sec.secili { color: #0d1a2e; } }
+.sec.secili { background: var(--murekkep); border-color: var(--murekkep); color: var(--ana-yazi); }
 .sec:disabled { opacity: .35; cursor: default; }
 .sec.secili:disabled { opacity: .75; }
 
@@ -189,8 +199,7 @@ input:focus { border-color: var(--murekkep); }
 .tus.r1 { color: var(--soluk); background: transparent; border-style: dashed; }
 .tus.r2 { color: var(--yesil); border-color: var(--yesil); }
 .tus.sil { font-family: var(--govde); font-size: 20px; grid-column: span 2; }
-.tus.tamam { grid-column: span 3; background: var(--murekkep); border-color: var(--murekkep); color: #fff; font-family: var(--govde); font-size: 18px; font-weight: 800; }
-@media (prefers-color-scheme: dark) { .tus.tamam { color: #0d1a2e; } }
+.tus.tamam { grid-column: span 3; background: var(--murekkep); border-color: var(--murekkep); color: var(--ana-yazi); font-family: var(--govde); font-size: 18px; font-weight: 800; }
 
 /* ---------- oyun ekranı ---------- */
 .oyun { gap: 10px; padding-top: 8px; height: 100dvh; max-height: 100dvh; }
@@ -216,8 +225,7 @@ input:focus { border-color: var(--murekkep); }
   text-align: center; font-weight: 800; padding: 9px 12px; border-radius: 12px;
   background: var(--kart); border: 1px solid var(--kenar); color: var(--soluk); font-size: 15px;
 }
-.durum-serit.sende { background: var(--murekkep); border-color: var(--murekkep); color: #fff; }
-@media (prefers-color-scheme: dark) { .durum-serit.sende { color: #0d1a2e; } }
+.durum-serit.sende { background: var(--murekkep); border-color: var(--murekkep); color: var(--ana-yazi); }
 
 .tablo { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
 .hucre {
@@ -339,8 +347,7 @@ input:focus { border-color: var(--murekkep); }
   padding: 7px 12px; border-radius: 16px 16px 16px 4px; background: var(--murekkep-acik); color: var(--yazi);
   font-weight: 700; font-size: 15.5px; overflow-wrap: anywhere; line-height: 1.35;
 }
-.ben .balon { border-radius: 16px 16px 4px 16px; background: var(--murekkep); color: #fff; }
-@media (prefers-color-scheme: dark) { .ben .balon { color: #0d1a2e; } }
+.ben .balon { border-radius: 16px 16px 4px 16px; background: var(--murekkep); color: var(--ana-yazi); }
 .balon.emoji, .ben .balon.emoji { background: transparent; font-size: 34px; padding: 0 4px; line-height: 1.15; }
 .hazir { display: flex; flex-wrap: wrap; gap: 6px; }
 .hazir::-webkit-scrollbar { display: none; }
@@ -457,3 +464,20 @@ input:focus { border-color: var(--murekkep); }
 .bot-kart .sayac .sec { min-width: 26px; padding: 3px 6px; }
 .uyum-not { margin: 0; text-align: center; font-weight: 800; color: var(--turuncu) !important; }
 .sec.ince-sec { padding: 3px 9px; font-size: 12.5px; margin-left: 4px; }
+.ad-durum { min-height: 16px; font-weight: 800; } .ad-durum.iyi { color: var(--yesil); } .ad-durum.kotu { color: var(--kirmizi); }
+
+/* ---------- tema seçimi ---------- */
+.tema-liste { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tema-kart { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 14px; border: 2px solid var(--kenar); background: var(--kart); cursor: pointer; font-weight: 800; color: var(--yazi); }
+.tema-kart.secili { border-color: var(--murekkep); }
+.tema-ornek { display: flex; height: 26px; border-radius: 8px; overflow: hidden; border: 1px solid rgba(0,0,0,.1); }
+.tema-ornek i { flex: 1; }
+
+/* ---------- emoji tepkisi, konfeti ---------- */
+.liste li.tepkili { cursor: pointer; }
+.liste .tepki { margin-left: auto; font-size: 18px; line-height: 1; }
+.tepki-ipucu { opacity: .35; font-size: 15px; }
+.liste li.tepki-sec { display: flex; gap: 4px; justify-content: flex-end; padding: 2px 0 6px; border-bottom: 1px dashed var(--kenar); }
+.tepki-sec button { border: 1px solid var(--kenar); background: var(--kart); border-radius: 10px; font-size: 20px; padding: 2px 6px; cursor: pointer; }
+.tepki-sec button.secili { border-color: var(--murekkep); background: var(--murekkep-acik); }
+canvas.konfeti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 50; }

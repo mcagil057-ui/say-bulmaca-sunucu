@@ -106,7 +106,7 @@ const GUNLUK_EYLEM = {
       const k = g.tahminler[g.tahminler.length - 1] || {};
       if (gunlukBitti()) {
         Istat.gunlukKaydet(g.gun, g.tahminler.length);
-        Ses.cal('kazandin'); titret([60, 60, 120]);
+        Ses.cal('kazandin'); titret([60, 60, 120]); konfeti();
         S.gSiralama = true;
       } else Ses.cal(k.arti + k.eksi === 0 ? 'sifir' : k.arti >= a.basamak - 1 ? 'yakin' : 'cevap');
     } catch (e) {

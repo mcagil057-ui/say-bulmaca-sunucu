@@ -25,6 +25,51 @@ if (!ID) {
 
 const SEVIYE_AD = { kolay: 'Kolay', orta: 'Orta', zor: 'Zor' };
 
+// ------------------------------------------------------------ tema
+const TEMALAR = {
+  otomatik: { ad: '📱 Otomatik', renk: ['#f7f5ee', '#1c2524', '#1f4fb5'] },
+  defter: { ad: '📒 Defter', renk: ['#f7f5ee', '#ffffff', '#1f4fb5'] },
+  tahta: { ad: '🖤 Kara tahta', renk: ['#1c2524', '#253130', '#8db8ff'] },
+  gece: { ad: '🌙 Gece mavisi', renk: ['#0f1729', '#18233a', '#7aa2ff'] },
+  seker: { ad: '🍬 Şeker', renk: ['#fff5f8', '#ffffff', '#d14d86'] },
+};
+function temaUygula() {
+  const t = depo.al('sb_tema', 'otomatik');
+  if (t === 'otomatik' || !TEMALAR[t]) delete document.documentElement.dataset.tema;
+  else document.documentElement.dataset.tema = t;
+  // Telefonun üst çubuğu da temanın renginde olsun
+  const renk = getComputedStyle(document.documentElement).getPropertyValue('--kagit').trim();
+  document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', renk));
+}
+temaUygula();
+/** Yarış rekorları: en hızlı bulanlar, herkes bir kez. */
+function rekorHTML() {
+  const r = S.rekor;
+  const sekme = [3, 4, 5].map(b => `<button class="sec ${r.basamak === b ? 'secili' : ''}" data-e="rekorAc" data-v="${b}">${b} basamak</button>`).join('');
+  let ic;
+  if (r.yukleniyor) ic = '<p class="not">Yükleniyor…</p>';
+  else if (r.hata) ic = `<p class="not">${esc(r.hata)}</p>`;
+  else if (!r.liste.length) ic = '<p class="not">Henüz rekor yok. Arkadaşlarınla bir yarış oyna, ilk rekoru sen kır!</p>';
+  else ic = `<ol class="sir-liste">${r.liste.map((x, i) => `<li class="${x.ben ? 'ben' : ''}">
+      <span class="an-no">${i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1}</span>
+      <span class="sir-ad">${esc(x.ad)}${x.ben ? ' <small>(sen)</small>' : ''}<small> · ${x.kisi} kişilik</small></span>
+      <b>${sureYazi(x.sure)} <small>${x.soru} soru</small></b></li>`).join('')}</ol>`;
+  return `<div class="modal"><h2>🏁 Yarış rekorları</h2>
+    <div class="secenekler genis">${sekme}</div>
+    <p class="not kucuk">Arkadaşlarla oynanan yarışların en hızlı kazananları. Herkes en iyi süresiyle bir kez yer alır.</p>
+    ${ic}
+    ${r.benim ? `<p class="not kucuk">Sen ${r.benim}. sıradasın.</p>` : ''}
+    <button class="dugme ana" data-e="rekorKapat">Kapat</button></div>`;
+}
+
+function temaModalHTML() {
+  const secili = depo.al('sb_tema', 'otomatik');
+  return `<div class="modal"><h2>Tema</h2>
+    <div class="tema-liste">${Object.entries(TEMALAR).map(([k, t]) => `<button class="tema-kart ${secili === k ? 'secili' : ''}" data-e="temaSec" data-v="${k}">
+      <span class="tema-ornek">${t.renk.map(r => `<i style="background:${r}"></i>`).join('')}</span>${t.ad}</button>`).join('')}</div>
+    <button class="dugme ince" data-e="temaKapat">Kapat</button></div>`;
+}
+
 const S = {
   alt: null,                 // giriş ekranında açık bölüm: null | 'katil' | 'bot'
   kaynak: null,              // Cevrimici | YerelOda
@@ -253,6 +298,8 @@ class YerelOda {
     const k = yeni[yeni.length - 1];
     if (!k || !k.tahmin || k.arti === N) return;
     const bot = k.kim === 1;
+    // Bot, oyuncunun sorusuna ara sıra emoji tepkisi verir
+    if (!bot && Math.random() < 0.25) k.tepki = k.arti >= N - 1 ? '😮' : k.arti + k.eksi === 0 ? '😂' : '🤔';
     if (k.arti + k.eksi === 0 && Math.random() < 0.45) this.botYaz(this.sec(bot ? 'benSifir' : 'senSifir'));
     else if (k.arti >= N - 1 && Math.random() < 0.6) this.botYaz(this.sec(bot ? 'benYakin' : 'senYakin'));
   }
@@ -296,6 +343,7 @@ class YerelOda {
       case 'tahmin': h = m.tahminEt(0, v.sayi); break;
       case 'cevap': h = m.cevapVer(0, v.arti, v.eksi); break;
       case 'teslim': h = m.teslim(0); break;
+      case 'tepki': h = m.tepki(0, v.no, v.emoji); break;
       case 'mesaj': {
         const metin = String(v.metin || '').replace(/\s+/g, ' ').trim().slice(0, 120);
         if (!metin) return;
@@ -469,6 +517,12 @@ function durumGeldi(d) {
     S.sonOlay = 0;
   }
   sohbetGeldi(d, ilk);
+  if (!ilk && d.mac && d.mac.tur !== 'yaris' && S.d && S.d.mac && S.d.mac.id === d.mac.id) {
+    for (const k of d.mac.sorularim) {
+      const once = S.d.mac.sorularim.find(x => x.no === k.no);
+      if (k.tepki && (!once || once.tepki !== k.tepki)) { bildir(`${d.mac.rakip.ad} sorduğun ${k.tahmin} için ${k.tepki}`); Ses.cal('mesaj'); }
+    }
+  }
   if (d.mac && d.mac.faz === 'bitti') macKaydet(d);
   if (!ilk) sesCal(S.d, d);
   if (hamleBende(d) && !hamleBende(S.d)) titret(80);
@@ -483,7 +537,7 @@ function sesCal(once, d) {
   if (!m) return;
   const ayniMac = om && om.id === m.id;
   if (m.tur === 'yaris') {
-    if (m.faz === 'bitti' && !(ayniMac && om.faz === 'bitti')) { Ses.cal(m.sonuc.kazanan === 'ben' ? 'kazandin' : 'kaybettin'); return; }
+    if (m.faz === 'bitti' && !(ayniMac && om.faz === 'bitti')) { Ses.cal(m.sonuc.kazanan === 'ben' ? 'kazandin' : 'kaybettin'); if (m.sonuc.kazanan === 'ben') konfeti(); return; }
     if (ayniMac && m.ben.sorular.length > om.ben.sorular.length) {
       const k = m.ben.sorular[m.ben.sorular.length - 1], N = m.ayar.basamak;
       Ses.cal(k.arti === N ? 'buldu' : k.arti + k.eksi === 0 ? 'sifir' : k.arti >= N - 1 ? 'yakin' : 'cevap');
@@ -492,6 +546,7 @@ function sesCal(once, d) {
   }
   if (m.faz === 'bitti' && !(ayniMac && om.faz === 'bitti')) {
     Ses.cal(m.sonuc.kazanan === 'ben' ? 'kazandin' : m.sonuc.kazanan === 'rakip' ? 'kaybettin' : 'berabere');
+    if (m.sonuc.kazanan === 'ben') konfeti();
     return;
   }
   if (m.olay && m.olay.tur === 'yanlis' && !(ayniMac && om.olay && om.olay.no === m.olay.no)) { Ses.cal('yanlis'); return; }
@@ -616,7 +671,7 @@ function ayarFormu(a, eylem, kilitli, odada) {
   return `<div class="ayarlar">${tur}
     <div class="ayar"><span>Cevaplar</span><div class="secenekler">${sec('otoCevap', true, 'Otomatik')}${sec('otoCevap', false, 'Elle yazılır')}</div></div>
     <div class="ayar"><span>Basamak</span><div class="secenekler">${[3, 4, 5].map(b => sec('basamak', b, b)).join('')}</div></div>
-    <div class="ayar"><span>Tur süresi</span><div class="secenekler">${Oyun.SURELER.map(s => sec('turSure', s, s ? s + ' sn' : 'Yok')).join('')}</div></div>
+    <div class="ayar"><span>Tur süresi</span><div class="secenekler">${Oyun.SURELER.map(s => sec('turSure', s, s === 15 ? '⚡ 15 sn' : s ? s + ' sn' : 'Yok')).join('')}</div></div>
     ${a.otoCevap ? '' : `<div class="ayar"><span>Yanlış cevap hakkı</span><div class="secenekler">${[1, 2, 3, 4, 5].map(y => sec('yanlisHak', y, y)).join('')}</div></div>`}
     <div class="ayar"><span>Sayı 0 ile başlayabilir</span><div class="secenekler">${sec('basSifir', false, 'Hayır')}${sec('basSifir', true, 'Evet')}</div></div>
     <div class="ayar"><span title="Başlayan oyuncu bulursa rakibine son bir soru hakkı verilir">Eşit tur <small>(başlayan bulursa rakibe son hak)</small></span><div class="secenekler">${sec('esitTur', true, 'Açık')}${sec('esitTur', false, 'Kapalı')}</div></div>
@@ -676,9 +731,13 @@ function girisCiz() {
       <button class="dugme gunluk-dugme" data-e="gunlukAc">📅 Günün bulmacası${Istat.gunluk()[bugunTR()] ? ' <small>✓ çözdün</small>' : ''}</button>
       <div class="ikili">
         <button class="dugme ince" data-e="profilAc">📊 İstatistik</button>
+        <button class="dugme ince" data-e="rekorAc" data-v="3">🏁 Rekorlar</button>
         <button class="dugme ince" data-e="kurallar">Nasıl oynanır?</button>
       </div>
-      <button class="dugme ince" data-e="sesDegistir">${Ses.acik ? '🔊 Ses açık' : '🔇 Ses kapalı'}</button>
+      <div class="ikili">
+        <button class="dugme ince" data-e="temaAc">🎨 Tema</button>
+        <button class="dugme ince" data-e="sesDegistir">${Ses.acik ? '🔊 Ses açık' : '🔇 Ses kapalı'}</button>
+      </div>
     </div>
     ${YEREL_ACILIS && S.agAdres ? `<p class="not kucuk">Aynı Wi-Fi'daki telefonlar şu adresi açsın:<br><b class="ag-adres">${esc(S.agAdres)}</b></p>` : ''}
     ${/android/i.test(navigator.userAgent) && !window.SBAndroid ? '<a class="dugme ince" href="indir/SayiBulmaca.apk" download>Android uygulamasını indir (APK)</a>' : ''}`;
@@ -823,25 +882,27 @@ function oyunCiz(d) {
 
   let durumYazi = '';
   if (bitti) durumYazi = 'Oyun bitti';
-  else if (m.asama === 'tahmin') durumYazi = m.siraBende ? 'Sıra sende — soru sor' : `${esc(m.rakip.ad)} soru düşünüyor…`;
+  else if (m.asama === 'tahmin') durumYazi = m.siraBende ? 'Sıra sende — soru sor' : `<span id="rakip-durum" data-ad="${esc(m.rakip.ad)}">${esc(m.rakip.ad)} soru düşünüyor…</span>`;
   else durumYazi = m.siraBende ? `${esc(m.rakip.ad)} cevap yazıyor…` : 'Cevap ver!';
   if (m.sonSans && !bitti) durumYazi = (m.siraBende ? 'Son hakkın! ' : 'Rakibin son hakkı · ') + durumYazi;
 
   const tablo = '<div class="tablo" role="group" aria-label="Rakam eleme tablosu">' +
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => `<button class="hucre r${S.tablo[i]}" data-e="tablo" data-v="${i}" aria-label="${i}">${i}</button>`).join('') + '</div>';
 
-  const gelen = m.gelenSorular.map(k => `<li>
+  const gelen = m.gelenSorular.map(k => `<li class="${k.tahmin ? 'tepkili' : ''}" ${k.tahmin ? `data-e="tepkiAc" data-v="${k.no}"` : ''}>
       ${k.tahmin ? sayiHTML(k.tahmin, false) : '<span class="sayi soluk">———</span>'}
       <span class="esittir">=</span>
       ${k.tahmin ? cevapHTML(k.arti, k.eksi) : '<span class="etiket">süre doldu</span>'}
       ${k.verilen ? `<span class="hatali" title="Yanlış yazdın">✗ ${esc(cevapMetin(k.verilen.arti, k.verilen.eksi))}</span>` : ''}
       ${k.sure && k.tahmin ? '<span class="hatali" title="Cevap süresi doldu">⏱</span>' : ''}
-    </li>`).join('');
+      <span class="tepki">${k.tepki || (k.tahmin ? '<small class="tepki-ipucu">☺</small>' : '')}</span>
+    </li>${S.tepkiNo === k.no ? `<li class="tepki-sec">${Oyun.TEPKILER.map(e => `<button data-e="tepkiVer" data-v="${k.no}:${e}" class="${k.tepki === e ? 'secili' : ''}">${e}</button>`).join('')}</li>` : ''}`).join('');
   const benim = m.sorularim.map(k => `<li>
       ${k.tahmin ? sayiHTML(k.tahmin, true) : '<span class="sayi soluk">———</span>'}
       <span class="esittir">=</span>
       ${k.tahmin ? cevapHTML(k.arti, k.eksi) : '<span class="etiket">süre doldu</span>'}
       ${k.verilen ? `<span class="duzeltme" title="Rakip yanlış yazdı, uygulama düzeltti">düzeltildi</span>` : ''}
+      ${k.tepki ? `<span class="tepki" title="Rakibin tepkisi">${k.tepki}</span>` : ''}
     </li>`).join('');
 
   return `<section class="oyun ${bitti ? 'bitti' : ''}">
@@ -953,6 +1014,14 @@ function katmanCiz() {
   }
   if (S.alt === 'gunluk' && !S.kaynak && S.gSiralama && S.g && S.g.gun) {
     k.innerHTML = `<div class="perde">${siralamaHTML()}</div>`;
+    return;
+  }
+  if (S.rekor) {
+    k.innerHTML = `<div class="perde">${rekorHTML()}</div>`;
+    return;
+  }
+  if (S.temaModal) {
+    k.innerHTML = `<div class="perde">${temaModalHTML()}</div>`;
     return;
   }
   if (S.adModal && S.hesap) {
@@ -1076,6 +1145,7 @@ function yarisSonucHTML(d) {
     ${yarisSkorHTML(d)}
     <button class="dugme ana" data-e="rovans">Rövanş</button>
     <button class="dugme" data-e="analizAc" data-v="ben">📈 Sorularımın analizi</button>
+    ${d.oda.bot ? '' : `<button class="dugme" data-e="rekorAc" data-v="${m.ayar.basamak}">🏁 Yarış rekorları</button>`}
     ${kurucu ? '<button class="dugme" data-e="lobi">Ayarları değiştir</button>' : ''}
     <button class="dugme ince" data-e="sonucKapat">Tahtaya bak</button></div>`;
 }
@@ -1098,6 +1168,14 @@ function sureGuncelle() {
   const kutu = $('#sure');
   if (!kutu) return;
   const m = S.d && S.d.mac;
+  // Rakip sayı yazıyorsa "yazıyor…" (son 3 sn)
+  const rd = $('#rakip-durum');
+  if (rd && S.d) {
+    const r = S.d.oda.oyuncular.find(x => !x.ben);
+    const yaziyor = r && r.yaziyor && Date.now() + S.ofset - r.yaziyor < 3000;
+    const metin = yaziyor ? `✍️ ${rd.dataset.ad} yazıyor…` : `${rd.dataset.ad} soru düşünüyor…`;
+    if (rd.textContent !== metin) rd.textContent = metin;
+  }
   if (m && m.tur === 'yaris') {
     const gecen = Math.max(0, (m.faz === 'bitti' ? m.bitis : Date.now() + S.ofset) - m.baslangic);
     $('#sure-sayi').textContent = sureYazi(gecen);
@@ -1113,6 +1191,43 @@ function sureGuncelle() {
   kutu.className = 'sure' + (sn <= 10 ? ' az' : '') + (hamleBende(S.d) ? ' benim' : '');
 }
 setInterval(sureGuncelle, 250);
+
+/** Klasik çevrimiçi maçta sıra bendeyken rakibe "yazıyor" bilgisi (en sık 1,5 sn'de bir). */
+function yaziyorBildir() {
+  const m = S.d && S.d.mac;
+  if (!(S.kaynak instanceof Cevrimici) || !m || m.tur === 'yaris' || m.faz !== 'oyun' || m.asama !== 'tahmin' || !m.siraBende) return;
+  if (Date.now() - (S.sonYaziyor || 0) < 1500) return;
+  S.sonYaziyor = Date.now();
+  S.kaynak.eylem('yaziyor').catch(() => { /* önemli değil */ });
+}
+
+/** Kazanınca konfeti (hareket azaltma açıksa yok). */
+function konfeti() {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const c = document.createElement('canvas');
+  c.className = 'konfeti';
+  c.width = innerWidth * devicePixelRatio; c.height = innerHeight * devicePixelRatio;
+  document.body.appendChild(c);
+  const g = c.getContext('2d'); g.scale(devicePixelRatio, devicePixelRatio);
+  const renk = ['#1f4fb5', '#23874f', '#c9671a', '#cf3b3b', '#d14d86', '#f2c94c'];
+  // Hız piksel/saniye: hareket kare sayısına değil geçen süreye bağlı (yavaş telefonda da aynı görünür)
+  const p = Array.from({ length: 140 }, () => ({
+    x: Math.random() * innerWidth, y: -40 + Math.random() * innerHeight * 0.45,
+    vx: (Math.random() - 0.5) * 180, vy: 120 + Math.random() * 240, a: Math.random() * 6, va: (Math.random() - 0.5) * 18,
+    w: 6 + Math.random() * 6, h: 8 + Math.random() * 8, r: renk[Math.floor(Math.random() * renk.length)],
+  }));
+  const t0 = performance.now();
+  let once = t0;
+  (function kare(t) {
+    const dt = Math.min(0.1, (t - once) / 1000); once = t;
+    g.clearRect(0, 0, innerWidth, innerHeight);
+    for (const q of p) {
+      q.x += q.vx * dt; q.y += q.vy * dt; q.vy += 180 * dt; q.a += q.va * dt;
+      g.save(); g.translate(q.x, q.y); g.rotate(q.a); g.fillStyle = q.r; g.fillRect(-q.w / 2, -q.h / 2, q.w, q.h); g.restore();
+    }
+    if (t - t0 < 3000) requestAnimationFrame(kare); else c.remove();
+  })(t0);
+}
 
 // ------------------------------------------------------------ eylemler
 async function mesajYolla(metin, olmazsa) {
@@ -1205,9 +1320,16 @@ const EYLEM = {
   },
   tus(v) {
     const a = girdiAyari();
-    if (S.girdi.length < a.basamak && S.girdi.indexOf(v) < 0) { S.girdi += v; ciz(); }
+    if (S.girdi.length < a.basamak && S.girdi.indexOf(v) < 0) { S.girdi += v; ciz(); yaziyorBildir(); }
   },
-  sil() { S.girdi = S.girdi.slice(0, -1); ciz(); },
+  sil() { S.girdi = S.girdi.slice(0, -1); ciz(); yaziyorBildir(); },
+  tepkiAc(v) { S.tepkiNo = S.tepkiNo === Number(v) ? null : Number(v); ciz(); },
+  async tepkiVer(v) {
+    const [no, emoji] = v.split(':');
+    S.tepkiNo = null;
+    try { await S.kaynak.eylem('tepki', { no: Number(no), emoji }); }
+    catch (h) { bildir(h.message || 'Tepki gitmedi', 'kotu'); ciz(); }
+  },
   rastgele() { S.girdi = Oyun.rastgeleSayi(S.d.mac.ayar); ciz(); },
   async gizliOnay() {
     const h = Oyun.sayiHatasi(S.girdi, S.d.mac.ayar);
@@ -1266,6 +1388,18 @@ const EYLEM = {
   kurallar() { S.kurallar = true; S.menu = false; katmanCiz(); },
   kurallarKapat() { S.kurallar = false; katmanCiz(); },
   sesDegistir() { Ses.degistir(); ciz(); },
+  async rekorAc(v) {
+    const basamak = Number(v) || 3;
+    S.rekor = { basamak, yukleniyor: true }; S.menu = false; katmanCiz();
+    try {
+      const r = await fetch(`${API}/api/yaris-siralama?basamak=${basamak}`, { headers: basliklar(), cache: 'no-store' }).then(x => x.json());
+      if (S.rekor && S.rekor.basamak === basamak) { S.rekor = Object.assign({ basamak }, r); katmanCiz(); }
+    } catch (e) { if (S.rekor) { S.rekor.hata = 'Sunucuya ulaşılamadı'; S.rekor.yukleniyor = false; katmanCiz(); } }
+  },
+  rekorKapat() { S.rekor = null; katmanCiz(); },
+  temaAc() { S.temaModal = true; katmanCiz(); },
+  temaKapat() { S.temaModal = false; katmanCiz(); },
+  temaSec(v) { if (TEMALAR[v]) { depo.koy('sb_tema', v); temaUygula(); katmanCiz(); } },
 };
 Object.assign(EYLEM, PROFIL_EYLEM, ANALIZ_EYLEM, GUNLUK_EYLEM, GIRIS_EYLEM);
 

@@ -65,7 +65,15 @@ async function hesapDenetle() {
     S.mailGiris = !!m.mailGiris;
     depo.koy('sb_mailgiris', S.mailGiris ? '1' : '0');
   } catch (e) { S.mailGiris = depo.al('sb_mailgiris', '0') === '1'; }
-  if (!S.mailGiris) { misafirOl(); return true; }
+  if (!S.mailGiris) {
+    misafirOl();
+    // Sunucudaki adı al (yeni misafirse hesap şimdi açılır; ad alınmışsa "Oyuncu-1234" verilir)
+    try {
+      const r = await fetch(API + '/api/ben', { headers: basliklar(), cache: 'no-store' });
+      if (r.ok) { const h = (await r.json()).hesap; S.hesap.ad = h.ad; depo.koy('sb_ad', h.ad); }
+    } catch (e) { /* çevrimdışı: yerel adla devam */ }
+    return true;
+  }
   if (!oturum()) { S.giris = { adim: 'mail', mail: '', kod: '', ad: '' }; return false; }
   try {
     const r = await fetch(API + '/api/ben', { headers: basliklar(), cache: 'no-store' });
@@ -123,6 +131,7 @@ function hesapKarti() {
     return `<div class="kart ad-kart">
       <label for="ad">Adın</label>
       <input id="ad" maxlength="16" autocomplete="nickname" placeholder="Adını yaz" value="${esc(h.ad)}">
+      <small id="ad-durum" class="ad-durum"></small>
     </div>`;
   }
   return `<div class="kart hesap-kart">
@@ -207,13 +216,29 @@ const GIRIS_EYLEM = {
   },
 };
 
-// Misafirde ad kutusu
+// Misafirde ad kutusu: yazmayı bırakınca sunucuya sorulur (aynı adı iki kişi alamaz)
+let adSaat;
 document.addEventListener('input', e => {
-  if (e.target.id === 'ad' && S.hesap && S.hesap.misafir) {
-    const ad = e.target.value.trim().slice(0, 16);
-    depo.koy('sb_ad', ad);
-    S.hesap.ad = ad;
-  }
+  if (e.target.id !== 'ad' || !S.hesap || !S.hesap.misafir) return;
+  clearTimeout(adSaat);
+  const kutu = e.target;
+  const durumYazi = $('#ad-durum');
+  if (durumYazi) { durumYazi.textContent = ''; durumYazi.className = 'ad-durum'; }
+  adSaat = setTimeout(async () => {
+    const ad = kutu.value.trim().replace(/\s+/g, ' ').slice(0, 16);
+    if (!ad || ad === S.hesap.ad) return;
+    try {
+      const r = await istek('/api/ad', { ad });
+      S.hesap.ad = r.hesap.ad; depo.koy('sb_ad', r.hesap.ad);
+      if (durumYazi) { durumYazi.textContent = '✓ Kaydedildi'; durumYazi.className = 'ad-durum iyi'; }
+    } catch (h) {
+      if (durumYazi) { durumYazi.textContent = h.message; durumYazi.className = 'ad-durum kotu'; }
+    }
+  }, 800);
+});
+// Kutudan çıkınca kaydedilmemiş ad kalmasın: geçerli ada dön
+document.addEventListener('focusout', e => {
+  if (e.target.id === 'ad' && S.hesap && S.hesap.misafir) setTimeout(() => { if (document.activeElement !== e.target && e.target.value.trim() !== S.hesap.ad && !$('#ad-durum').textContent.startsWith('✓')) e.target.value = S.hesap.ad; }, 1200);
 });
 
 // Yazılanlar ekran yeniden çizilince kaybolmasın

@@ -26,8 +26,15 @@ function istemci(cihaz, ad) {
   const ali = istemci('a1b2c3d4e5f6a7b8c9d0e1f2', { v: 'Ali' });
   const ben = await ali.get('/api/ben');
   esit([ben.durum, ben.hesap.ad, ben.hesap.misafir, ben.hesap.mail], [200, 'Ali', true, null], 'girişsiz misafir hesap, mail gizli');
+  esit((await ali.post('/api/ad', { ad: 'Ali Can' })).hesap.ad, 'Ali Can', 'misafir adını değiştirebiliyor');
   ali.ad.v = 'Ali Can';
-  esit((await ali.get('/api/ben')).hesap.ad, 'Ali Can', 'ad serbestçe değişiyor');
+  // Aynı adı iki kişi alamaz (büyük/küçük harf ve Türkçe harf farkı sayılmaz)
+  const veli = istemci('9999888877776666aaaabbbb', { v: 'ALİ CAN' });
+  const veliBen = (await veli.get('/api/ben')).hesap.ad;
+  esit(/^Oyuncu-/.test(veliBen), true, 'alınmış adla gelen yeni misafire başka ad veriliyor');
+  esit((await veli.post('/api/ad', { ad: 'ali can' })).durum, 400, 'alınmış ad seçilemiyor');
+  esit((await veli.post('/api/ad', { ad: 'Veli' })).hesap.ad, 'Veli', 'boş ad seçilebiliyor');
+  veli.ad.v = 'Veli';
   esit((await istemci('kisa', { v: 'X' }).get('/api/ben')).durum, 400, 'telefon kimliği olmadan olmuyor');
   // Günün bulmacası misafirle de kalıcı ve tek
   const g = await ali.get('/api/gunluk');
@@ -63,6 +70,27 @@ function istemci(cihaz, ad) {
   const son = (await ali.get(`/api/bekle?kod=${oda2.kod}&surum=-1`)).durum;
   esit([son.mac.faz, son.mac.sonuc.kazanan, son.oda.oyuncular.find(o => o.ad === 'Can').galibiyet], ['bitti', 'Can', 1], 'yarışta ilk bulan kazandı, skora yazıldı');
   esit((await ayse.post('/api/eylem', { kod: oda2.kod, tur: 'tahmin', sayi: '123' })).durum, 400, 'yarış bitince soru yok');
+  // Yarış rekoru: kazanan listede bir kez, en iyi süresiyle
+  await bekle(300);
+  let rek = await ali.get('/api/yaris-siralama?basamak=' + yd.ayar.basamak);
+  esit([rek.liste.length, rek.liste[0].ad, rek.liste[0].kisi], [1, 'Can', 3], 'yarış rekoru kaydedildi');
+  await ali.post('/api/eylem', { kod: oda2.kod, tur: 'rovans' });
+  yg = [];
+  for (let i = 0; i < 20; i++) {
+    await can.post('/api/eylem', { kod: oda2.kod, tur: 'tahmin', sayi: Oyun.botTahmin('zor', yayar, yg) });
+    const m = (await can.get(`/api/bekle?kod=${oda2.kod}&surum=-1`)).durum.mac;
+    yg = m.ben.sorular;
+    if (m.faz === 'bitti') break;
+  }
+  await bekle(300);
+  rek = await can.get('/api/yaris-siralama?basamak=' + yd.ayar.basamak);
+  esit([rek.liste.length, rek.liste[0].ben, rek.benim], [1, true, 1], 'iki kez kazanan listede yine bir kez');
+  // "Yazıyor": sıradaki oyuncu yazınca rakip görür
+  const oda3 = await ali.post('/api/oda');
+  await ayse.post('/api/katil', { kod: oda3.kod });
+  esit((await ali.post('/api/eylem', { kod: oda3.kod, tur: 'yaziyor' })).durum, 200, 'yazıyor bildirildi');
+  const ay = (await ayse.get(`/api/bekle?kod=${oda3.kod}&surum=-1`)).durum.oda.oyuncular.find(o => !o.ben);
+  esit(Date.now() - ay.yaziyor < 5000, true, 'rakip yazıyor bilgisini görüyor');
   sunucu.kill();
   console.log(hata ? `\n${hata} HATA` : '\nMisafir denetimleri geçti');
   process.exit(hata ? 1 : 0);
