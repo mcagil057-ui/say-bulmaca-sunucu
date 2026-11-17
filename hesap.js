@@ -47,17 +47,17 @@ function esitMi(a, b) {
 }
 
 /**
- * İsteği yapanın ağ adresi. X-Forwarded-For'un SOLUNDAKİ değerleri telefon
- * kendisi yazabilir; en SAĞDAKİ, sunucunun önündeki son vekilin (Render)
- * eklediğidir. IP_BASLIGI ortam değişkeniyle başka bir başlık seçilebilir.
+ * İsteği yapanın ağ adresi.
+ * Render'da ölçüldü (17.11.2026): X-Forwarded-For = "<telefonun yazdığı>, <gerçek>,
+ * <Cloudflare>, <Render iç adresi 10.x>" — en soldakini telefon uydurabilir,
+ * en sağdaki herkes için aynı. CF-Connecting-IP'yi Render'ın önündeki
+ * Cloudflare kendisi koyar; sahte değer gönderilince Cloudflare ya ezer ya
+ * isteği reddeder (ölçüldü). Bilgisayardaki denemede ilk X-Forwarded-For.
  */
 function istemciIp(istek) {
   let ip = '';
-  if (process.env.IP_BASLIGI) ip = String(istek.headers[process.env.IP_BASLIGI.toLowerCase()] || '').split(',')[0].trim();
-  if (!ip) {
-    const l = String(istek.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean);
-    ip = l[l.length - 1] || istek.socket.remoteAddress || '';
-  }
+  if (process.env.RENDER) ip = String(istek.headers['cf-connecting-ip'] || '').trim();
+  if (!ip) ip = String(istek.headers['x-forwarded-for'] || '').split(',')[0].trim() || istek.socket.remoteAddress || '';
   ip = ip.replace(/^::ffff:/, '');
   if (ip.includes(':')) ip = ip.split(':').slice(0, 4).join(':'); // IPv6: geçici adres değişse de aynı ağ
   return ip;

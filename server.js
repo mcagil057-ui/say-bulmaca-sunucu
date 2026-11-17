@@ -309,12 +309,6 @@ const sunucu = http.createServer(async (istek, yanit) => {
       }
     }
 
-    // Geçici ölçüm: sunucunun önündeki vekil hangi başlıkları ekliyor? (ağ adresini doğru okumak için)
-    if (yol === '/api/ip-olcum' && process.env.RENDER) {
-      const h = istek.headers;
-      return json(yanit, 200, { xff: h['x-forwarded-for'] || null, cf: h['cf-connecting-ip'] || null, tci: h['true-client-ip'] || null, xri: h['x-real-ip'] || null, soket: istek.socket.remoteAddress });
-    }
-
     // Aynı ağdakilerin açacağı adres: yalnızca oyunu kuran bilgisayarın kendisine söylenir
     if (yol === '/api/adres') {
       if (!yereldenMi(istek)) return json(yanit, 404, { hata: 'Yok' });
