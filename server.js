@@ -259,13 +259,13 @@ const sunucu = http.createServer(async (istek, yanit) => {
       return json(yanit, 200, { adresler: agAdresleri().map(a => `http://${a}:${PORT}/`) });
     }
 
-    // Rakip bekleyen odalar: aynı ağdaki biri kod yazmadan dokunup girebilsin
+    // Rakip bekleyen odalar: yalnızca kimin oda açtığı görünür; girmek için kod gerekir (kod gönderilmez)
     if (yol === '/api/odalar') {
       const liste = [];
       for (const oda of odalar.values()) {
         const kurucu = oda.oyuncular[0];
         if (oda.oyuncular.length === 1 && !oda.mac && bagliMi(kurucu)) {
-          liste.push({ kod: oda.kod, ad: kurucu.ad, basamak: oda.ayar.basamak, turSure: oda.ayar.turSure });
+          liste.push({ ad: kurucu.ad, basamak: oda.ayar.basamak, turSure: oda.ayar.turSure });
         }
       }
       return json(yanit, 200, { odalar: liste.slice(0, 20) });

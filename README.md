@@ -51,8 +51,8 @@ node test.js          # denetim
 1. Bilgisayarda `AgdaOyna.bat`'a çift tıkla. Pencerede "Aynı Wi-Fi'dakiler"
    satırındaki adres yazar (ör. `http://192.168.68.61:8080`).
 2. Telefonlar aynı Wi-Fi'dayken bu adresi tarayıcıda açar.
-3. Biri **Oda kur** der; odası diğerlerinin ekranında **Açık odalar**
-   listesinde belirir, **Gir**'e basmak yeter.
+3. Biri **Oda kur** der ve odanın 4 harfli kodunu söyler; diğerleri **Kodla katıl** ile girer. (**Açık odalar** listesi kimin oda açtığını gösterir, 30 sn'de bir yenilenir; kodsuz giriş yoktur.)
+
 
 İlk açılışta Windows "erişime izin ver" sorarsa izin ver. Wi-Fi ağı Windows'ta
 "Ortak (Public)" ise telefonlar bağlanamaz: Ayarlar → Ağ ve İnternet → Wi-Fi →

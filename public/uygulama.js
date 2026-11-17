@@ -520,12 +520,12 @@ function girisCiz() {
 
 function acikOdalarHTML() {
   const l = S.acikOdalar;
-  const baslik = '<label>Açık odalar <small class="canli">● canlı</small></label>';
-  if (!l.length) return baslik + '<p class="not kucuk sol">Şu an rakip bekleyen oda yok. Biri oda kurunca burada görünür.</p>';
+  const baslik = '<label>Açık odalar <small>(30 sn\'de bir yenilenir)</small></label>';
+  if (!l.length) return baslik + '<p class="not kucuk sol">Şu an rakip bekleyen oda yok.</p>';
   return baslik + '<ul class="oda-listesi">' + l.map(o => `<li>
       <div><b>${esc(o.ad)}</b><small>${o.basamak} basamak · ${o.turSure ? o.turSure + ' sn' : 'süresiz'}</small></div>
-      <button class="sec secili" data-e="listedenKatil" data-v="${esc(o.kod)}">Gir</button>
-    </li>`).join('') + '</ul>';
+      <button class="sec" data-e="katilAc">Kodla gir</button>
+    </li>`).join('') + '</ul><p class="not kucuk sol">Odaya girmek için kodu odayı kurandan iste.</p>';
 }
 
 async function acikOdalariYenile() {
@@ -538,7 +538,7 @@ async function acikOdalariYenile() {
   const k = document.getElementById('acik-odalar');
   if (k && !S.kaynak && !S.alt) k.innerHTML = acikOdalarHTML();
 }
-setInterval(acikOdalariYenile, 3000);
+setInterval(acikOdalariYenile, 30000); // açık odalar 30 saniyede bir yenilenir
 
 function lobiCiz(d) {
   const o = d.oda;
@@ -553,7 +553,7 @@ function lobiCiz(d) {
     <div class="ust-cubuk"><button class="geri-ok" data-e="cik" aria-label="Odadan çık">‹</button><span>Oda</span>${sohbetDugme(d)}</div>
     <div class="kart oda-kart">
       <div class="oda-kod">${esc(o.kod)}</div>
-      <p class="not">Aynı Wi-Fi'daysanız odan arkadaşının ekranında <b>Açık odalar</b> listesinde görünür. Değilse bu kodu söyle ya da bağlantıyı gönder.</p>
+      <p class="not">Arkadaşların odaya <b>yalnızca bu kodla</b> girer. Kodu söyle ya da bağlantıyı gönder.</p>
       ${YEREL_ACILIS && S.agAdres ? `<p class="not kucuk">Telefonlar şu adresi açsın: <b class="ag-adres">${esc(S.agAdres)}</b></p>` : ''}
       <div class="ikili">
         <button class="dugme" data-e="kopyala">Kodu kopyala</button>
@@ -851,10 +851,6 @@ const EYLEM = {
   katilAc() { S.alt = 'katil'; ciz(); setTimeout(() => $('#kod') && $('#kod').focus(), 50); },
   botAc() { S.alt = 'bot'; ciz(); },
   geri() { S.alt = null; ciz(); acikOdalariYenile(); },
-  async listedenKatil(kod) {
-    try { await istek('/api/katil', { kod, ad: adim() }); baglan(kod); }
-    catch (h) { bildir(h.message, 'kotu'); acikOdalariYenile(); }
-  },
   async katil() {
     const kod = ($('#kod').value || '').trim().toUpperCase();
     if (kod.length !== 4) { bildir('Oda kodu 4 harfli', 'kotu'); return; }
