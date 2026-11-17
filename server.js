@@ -7,6 +7,9 @@
  *   POST /api/oda    {id, ad}        yeni oda -> {kod}
  *   POST /api/katil  {kod, id, ad}   odaya gir
  *   POST /api/eylem  {kod, id, tur, ...}   (tur: mesaj = oyun içi sohbet)
+ *   GET  /api/gunluk?id=..             günün bulmacası: gün, basamak, sıralama
+ *   POST /api/gunluk/sor   {id, gun, tahmin}       -> {arti, eksi}
+ *   POST /api/gunluk/bitti {id, ad, gun, tahminler} -> sıralamaya yazar
  *
  * Gizli sayılar YALNIZCA sunucuda durur; her oyuncuya kendi görmesi gereken
  * durum gönderilir. Rakibin sayısı oyun bitene kadar telefona hiç gelmez.
@@ -78,6 +81,8 @@ function odaKur(id, ad) {
     oyuncular: [oyuncuYap(id, ad)],
     mac: null,
     macSayisi: 0,
+    skor: {},            // oyuncu kimliği -> galibiyet sayısı (rövanşlar boyunca)
+    berabere: 0,
     sohbet: [],          // {no, id, ad, metin} — son SOHBET_SINIR mesaj
     mesajNo: 0,
     surum: 0,
@@ -97,7 +102,8 @@ function durum(oda, i) {
       ayar: oda.ayar,
       kurucuBen: i === 0,
       macNo: oda.macSayisi,
-      oyuncular: oda.oyuncular.map((o, k) => ({ ad: o.ad, bagli: bagliMi(o), ben: k === i })),
+      oyuncular: oda.oyuncular.map((o, k) => ({ ad: o.ad, bagli: bagliMi(o), ben: k === i, galibiyet: oda.skor[o.id] || 0 })),
+      berabere: oda.berabere,
       faz: oda.mac ? 'mac' : 'lobi',
     },
     sohbet: oda.sohbet.map(x => ({ no: x.no, ad: x.ad, metin: x.metin, ben: x.id === oda.oyuncular[i].id })),
@@ -111,7 +117,18 @@ function cevapla(oda, i, yanit) {
 }
 
 /** Odada bir şey değişti: bekleyen bütün telefonlara yeni durumu gönder. */
+/** Biten maçı oda skoruna bir kez yaz. */
+function skorIsle(oda) {
+  const m = oda.mac;
+  if (!m || m.faz !== 'bitti' || m.skorlandi) return;
+  m.skorlandi = true;
+  const k = m.sonuc.kazanan;
+  if (k === -1) oda.berabere++;
+  else if (oda.oyuncular[k]) { const id = oda.oyuncular[k].id; oda.skor[id] = (oda.skor[id] || 0) + 1; }
+}
+
 function yayinla(oda) {
+  skorIsle(oda);
   oda.surum++;
   oda.sonHareket = Date.now();
   oda.bagliAnahtar = oda.oyuncular.map(bagliMi).join();
@@ -233,7 +250,9 @@ const sunucu = http.createServer(async (istek, yanit) => {
       yanit.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Allow-Methods': 'GET, POST' });
       return yanit.end();
     }
-    if (yol === '/api/saglik') return json(yanit, 200, { tamam: true, oda: odalar.size });
+    if (yol === '/api/saglik') return json(yanit, 200, { tamam: true, oda: odalar.size, acilis: new Date(ACILIS).toISOString() });
+
+    if (yol === '/api/gunluk' && istek.method === 'GET') return json(yanit, 200, gunlukDurum(temizId(url.searchParams.get('id'))));
 
     // Aynı ağdakilerin açacağı adres (oyunu kuran bilgisayarda gösterilir)
     if (yol === '/api/adres') {
@@ -278,6 +297,27 @@ const sunucu = http.createServer(async (istek, yanit) => {
       const id = temizId(v.id);
       if (!id) return json(yanit, 400, { hata: 'Kimlik yok' });
 
+      if (yol === '/api/gunluk/sor') {
+        const gun = bugun();
+        if (v.gun !== gun) return json(yanit, 409, { hata: 'Gün değişti, yeni bulmaca başladı', gun });
+        const t = String(v.tahmin || '');
+        const h = Oyun.sayiHatasi(t, GUNLUK_AYAR);
+        if (h) return json(yanit, 400, { hata: h });
+        return json(yanit, 200, Oyun.puanla(gunlukGizli(gun), t));
+      }
+      if (yol === '/api/gunluk/bitti') {
+        const gun = bugun();
+        if (v.gun !== gun) return json(yanit, 409, { hata: 'Gün değişti', gun });
+        const liste = Array.isArray(v.tahminler) ? v.tahminler.map(String).slice(0, 200) : [];
+        // Sunucu kendisi denetler: son tahmin gerçekten günün sayısı mı?
+        if (!liste.length || liste[liste.length - 1] !== gunlukGizli(gun) || liste.some(t => Oyun.sayiHatasi(t, GUNLUK_AYAR))) {
+          return json(yanit, 400, { hata: 'Sonuç doğrulanamadı' });
+        }
+        const sonuclar = gunlukSonuclar(gun);
+        if (!sonuclar.has(id)) sonuclar.set(id, { ad: temizAd(v.ad), soru: liste.length, zaman: Date.now() });
+        return json(yanit, 200, gunlukDurum(id));
+      }
+
       if (yol === '/api/oda') {
         const oda = odaKur(id, temizAd(v.ad));
         return json(yanit, 200, { kod: oda.kod });
@@ -311,6 +351,54 @@ const sunucu = http.createServer(async (istek, yanit) => {
     if (!yanit.headersSent) json(yanit, 500, { hata: 'Sunucu hatası' });
   }
 });
+
+// ------------------------------------------------------------------ günün bulmacası
+/*
+ * Herkese aynı gizli sayı. Sayı tarihten ve gizli bir tuzdan hesaplanır:
+ * sunucu yeniden başlasa da aynı kalır, telefona hiç gönderilmez. Sıralama
+ * bellekte durur (sunucu yeniden kurulunca o günün sıralaması sıfırlanır).
+ */
+const GUNLUK_AYAR = Oyun.ayarDuzelt({ basamak: 4 });
+const GUNLUK_TUZ = process.env.GUNLUK_TUZ || 'sayi-bulmaca-gunun-sayisi';
+const gunlukKayit = new Map();   // gun -> Map(id -> {ad, soru, zaman})
+
+/** Türkiye saatine göre bugünün tarihi: 2026-11-17 */
+function bugun() { return new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 10); }
+
+function gunlukGizli(gun) {
+  const h = crypto.createHmac('sha256', GUNLUK_TUZ).update(gun).digest();
+  const tum = Oyun.tumSayilar(GUNLUK_AYAR);
+  return tum[h.readUInt32BE(0) % tum.length];
+}
+
+function gunlukSonuclar(gun) {
+  if (!gunlukKayit.has(gun)) {
+    gunlukKayit.set(gun, new Map());
+    for (const g of [...gunlukKayit.keys()].sort().slice(0, -3)) gunlukKayit.delete(g); // son 3 gün yeter
+  }
+  return gunlukKayit.get(gun);
+}
+
+function gunlukDurum(id) {
+  const gun = bugun();
+  const liste = [...gunlukSonuclar(gun).entries()]
+    .map(([k, x]) => ({ ad: x.ad, soru: x.soru, zaman: x.zaman, ben: k === id }))
+    .sort((a, b) => a.soru - b.soru || a.zaman - b.zaman);
+  return { gun, basamak: GUNLUK_AYAR.basamak, basSifir: GUNLUK_AYAR.basSifir, siralama: liste.slice(0, 50), toplam: liste.length, benim: liste.find(x => x.ben) || null };
+}
+
+// ------------------------------------------------------------------ uyanık kalma
+/*
+ * Render'ın ücretsiz sunucusu 15 dk istek gelmezse uyur; ilk açılış ~1 dk
+ * sürer ve bellekteki odalar/sıralama kaybolur. Sunucu 10 dakikada bir
+ * kendi genel adresini yoklar: istek Render'ın dışından dolaşıp geldiği için
+ * "trafik var" sayılır. Yerelde (RENDER_EXTERNAL_URL yoksa) çalışmaz.
+ */
+const ACILIS = Date.now();
+if (process.env.RENDER_EXTERNAL_URL && typeof fetch === 'function') {
+  const adres = process.env.RENDER_EXTERNAL_URL.replace(/\/$/, '') + '/api/saglik';
+  setInterval(() => { fetch(adres).catch(() => { /* bir sonrakinde */ }); }, 10 * 60 * 1000).unref();
+}
 
 // Terk edilmiş odaları temizle
 setInterval(() => {

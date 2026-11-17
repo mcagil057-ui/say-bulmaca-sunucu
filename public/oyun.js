@@ -151,6 +151,37 @@
   }
 
   /**
+   * Maç sonu analizi: her sorudan önce/sonra kaç sayı hâlâ mümkündü?
+   * sorular: [{tahmin, arti, eksi}] (süre dolan, tahmini boş olanlar atlanır)
+   * Dönen her adım: {tahmin, arti, eksi, once, sonra, olabilirdi}
+   *   olabilirdi = sorulan sayı o ana kadarki cevaplara uyuyordu (doğru cevap olabilirdi)
+   */
+  function analizEt(ayar, sorular) {
+    let aday = tumSayilar(ayar);
+    const adimlar = [];
+    for (const k of sorular) {
+      if (!k.tahmin) continue;
+      const once = aday.length;
+      const olabilirdi = aday.indexOf(k.tahmin) >= 0;
+      aday = aday.filter(s => { const p = puanla(s, k.tahmin); return p.arti === k.arti && p.eksi === k.eksi; });
+      adimlar.push({ tahmin: k.tahmin, arti: k.arti, eksi: k.eksi, once, sonra: aday.length, olabilirdi });
+    }
+    return adimlar;
+  }
+
+  /** Bot bu gizli sayıyı kaç soruda bulurdu? (karşılaştırma için) */
+  function botKacSoruda(seviye, ayar, gizli, rnd) {
+    const gecmis = [];
+    while (gecmis.length < 60) {
+      const t = botTahmin(seviye, ayar, gecmis, rnd);
+      const p = puanla(gizli, t);
+      gecmis.push({ tahmin: t, arti: p.arti, eksi: p.eksi });
+      if (p.arti === ayar.basamak) break;
+    }
+    return gecmis.length;
+  }
+
+  /**
    * İki kişilik tek bir maç. Oyuncu 0 ve 1.
    * faz: 'gizli' (sayılar seçiliyor) -> 'oyun' -> 'bitti'
    * asama: 'tahmin' (sıradaki soruyor) | 'cevap' (rakip cevabı yazıyor)
@@ -327,5 +358,5 @@
     }
   }
 
-  return { VARSAYILAN_AYAR, SURELER, ayarDuzelt, puanla, sayiHatasi, tumSayilar, rastgeleSayi, botTahmin, Mac };
+  return { VARSAYILAN_AYAR, SURELER, ayarDuzelt, puanla, sayiHatasi, tumSayilar, rastgeleSayi, botTahmin, analizEt, botKacSoruda, Mac };
 });

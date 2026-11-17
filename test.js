@@ -63,6 +63,13 @@ esit([m3.kayitlar[1].arti, m3.kayitlar[1].eksi], [1, 2], 'otomatik cevap +1 −2
 esit(m3.gorunum(0).gelenSorular.length, 1, 'gelen soru görünüyor');
 esit(new O.Mac({}, ['A', 'B'], 0).id !== m3.id, true, 'her maçın kimliği ayrı');
 
+// Maç analizi: Claude–Muhammed rövanşı (gizli 395)
+const an = O.analizEt(O.ayarDuzelt({}), [['123', 0, 1], ['245', 1, 0], ['267', 0, 0], ['835', 1, 1], ['305', 2, 0], ['395', 3, 0]].map(([tahmin, arti, eksi]) => ({ tahmin, arti, eksi })));
+esit(an.map(x => x.sonra), [228, 42, 12, 2, 1, 1], 'analiz: kalan ihtimaller');
+esit(an.every(x => x.olabilirdi), true, 'analiz: hepsi tutarlı soru');
+const an2 = O.analizEt(O.ayarDuzelt({}), [{ tahmin: '123', arti: 0, eksi: 0 }, { tahmin: '124', arti: 0, eksi: 0 }]);
+esit(an2[1].olabilirdi, false, 'analiz: çelişkili soru yakalandı');
+
 // Botlar: kaç soruda buluyorlar?
 function botOlc(seviye, ayar, n) {
   ayar = O.ayarDuzelt(ayar);

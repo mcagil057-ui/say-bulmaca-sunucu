@@ -47,6 +47,9 @@ const S = {
   sohbetAcik: false,
   sohbetSon: null,           // gördüğüm son mesaj numarası (null = oda yeni açıldı)
   sohbetOkunan: 0,           // okuduğum son mesaj numarası
+  analiz: null,              // maç analizi açık mı: null | 'ben' | 'rakip'
+  g: null,                   // günün bulmacası
+  gSiralama: false,
 };
 
 const HAZIR_MESAJLAR = ['Selam! 👋', 'İyi şanslar!', 'Hadi sıra sende', 'Güzel soru 👏', 'Çok yaklaştın!',
@@ -101,9 +104,19 @@ function cevapMetin(a, e) {
  * rakamlar soluk/yeşil görünür — bu yalnızca KENDİ sorduğum sorular için;
  * rakibin soruları ve kendi sayım tablodan etkilenmez.
  */
-function sayiHTML(s, renkli) {
+function sayiHTML(s, renkli, tablo) {
+  const t = tablo || S.tablo;
   return '<span class="sayi">' + String(s).split('').map(c =>
-    `<i class="r${renkli ? (S.tablo[+c] || 0) : 0}">${c}</i>`).join('') + '</span>';
+    `<i class="r${renkli ? (t[+c] || 0) : 0}">${c}</i>`).join('') + '</span>';
+}
+/** Oda skoru: "Ben 2 – 1 Ali · 1 berabere" */
+function skorHTML(d) {
+  const o = d.oda;
+  if (!o || !o.oyuncular || o.oyuncular.length < 2) return '';
+  const ben = o.oyuncular.find(x => x.ben), rakip = o.oyuncular.find(x => !x.ben);
+  const g1 = ben.galibiyet || 0, g2 = rakip.galibiyet || 0, b = o.berabere || 0;
+  if (!g1 && !g2 && !b) return '';
+  return `<div class="skor-serit"><span>${esc(ben.ad)}</span><b>${g1} – ${g2}</b><span>${esc(rakip.ad)}</span>${b ? `<small>${b} berabere</small>` : ''}</div>`;
 }
 function haklar(yanlis, toplam, oto) {
   if (oto) return ''; // otomatik cevapta yanlış cevap olmaz
@@ -174,29 +187,66 @@ class Cevrimici {
 class YerelOda {
   constructor(seviye, ayar) {
     this.seviye = seviye;
+    this.kisilik = BOT_KISILIK[seviye];
     this.ayar = Oyun.ayarDuzelt(ayar);
     this.macNo = 0;
     this.mac = null;
+    this.sohbet = [];
+    this.mesajNo = 0;
+    this.saatler = [];
+    this.skor = { ben: 0, bot: 0, berabere: 0 };
     this.yeniMac();
+    this.botYaz(this.sec('basla'), 1200);
   }
   yeniMac() {
     const baslayan = this.mac ? 1 - this.mac.baslayan : (Math.random() < 0.5 ? 0 : 1);
     this.macNo++;
-    this.mac = new Oyun.Mac(this.ayar, [adim(), 'Bot · ' + SEVIYE_AD[this.seviye]], baslayan);
+    this.mac = new Oyun.Mac(this.ayar, [adim(), this.kisilik.simge + ' ' + this.kisilik.ad], baslayan);
     this.mac.gizliBelirle(1, Oyun.rastgeleSayi(this.ayar));
+    this.gorulen = 0; // yorum yapılan son kayıt
     this.yayinla();
   }
   durum() {
     return {
       oda: {
-        kod: null, bot: this.seviye, ayar: this.ayar, kurucuBen: true, macNo: this.macNo, faz: 'mac',
-        oyuncular: [{ ad: adim(), bagli: true, ben: true }, { ad: this.mac.oyuncular[1].ad, bagli: true, ben: false }],
+        kod: null, bot: this.seviye, ayar: this.ayar, kurucuBen: true, macNo: this.macNo, faz: 'mac', berabere: this.skor.berabere,
+        oyuncular: [{ ad: adim(), bagli: true, ben: true, galibiyet: this.skor.ben }, { ad: this.mac.oyuncular[1].ad, bagli: true, ben: false, galibiyet: this.skor.bot }],
       },
       mac: this.mac.gorunum(0),
+      sohbet: this.sohbet.slice(),
       simdi: Date.now(),
     };
   }
+  sec(tur) { const l = this.kisilik[tur]; return l[Math.floor(Math.random() * l.length)]; }
+  /** Bot sohbete yazar (biraz bekleyip, insan gibi). */
+  botYaz(metin, gecikme) {
+    this.saatler.push(setTimeout(() => {
+      if (this.kapandi) return;
+      this.sohbet.push({ no: ++this.mesajNo, ad: this.mac.oyuncular[1].ad, metin, ben: false });
+      durumGeldi(this.durum());
+    }, gecikme || 1000 + Math.random() * 1200));
+  }
+  /** Yeni cevaplara ve maç sonuna göre bot ara sıra yorum yapar. */
+  yorumla() {
+    const m = this.mac, N = m.ayar.basamak;
+    if (m.faz === 'bitti' && !m.skorlandi) {
+      m.skorlandi = true;
+      const k = m.sonuc.kazanan;
+      if (k === -1) { this.skor.berabere++; this.botYaz(this.sec('berabere'), 900); }
+      else if (k === 1) { this.skor.bot++; this.botYaz(this.sec('buldum'), 900); }
+      else { this.skor.ben++; this.botYaz(this.sec('kaybettim'), 900); }
+      return;
+    }
+    const yeni = m.kayitlar.slice(this.gorulen);
+    this.gorulen = m.kayitlar.length;
+    const k = yeni[yeni.length - 1];
+    if (!k || !k.tahmin || k.arti === N) return;
+    const bot = k.kim === 1;
+    if (k.arti + k.eksi === 0 && Math.random() < 0.45) this.botYaz(this.sec(bot ? 'benSifir' : 'senSifir'));
+    else if (k.arti >= N - 1 && Math.random() < 0.6) this.botYaz(this.sec(bot ? 'benYakin' : 'senYakin'));
+  }
   yayinla() {
+    this.yorumla();
     durumGeldi(this.durum());
     this.zamanla();
     this.botOyna();
@@ -235,6 +285,14 @@ class YerelOda {
       case 'tahmin': h = m.tahminEt(0, v.sayi); break;
       case 'cevap': h = m.cevapVer(0, v.arti, v.eksi); break;
       case 'teslim': h = m.teslim(0); break;
+      case 'mesaj': {
+        const metin = String(v.metin || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        if (!metin) return;
+        this.sohbet.push({ no: ++this.mesajNo, ad: adim(), metin, ben: true });
+        durumGeldi(this.durum());
+        this.botYaz(botCevapla(this.seviye, metin), 1200 + Math.random() * 1500);
+        return;
+      }
       case 'rovans': this.yeniMac(); return;
       case 'ayril': case 'lobi': this.kapat(); anaMenu('bot'); return;
       default: h = 'Bilinmeyen eylem';
@@ -242,7 +300,7 @@ class YerelOda {
     if (h) throw new Error(h);
     this.yayinla();
   }
-  kapat() { clearTimeout(this.saat); clearTimeout(this.botSaat); this.mac.faz = 'bitti'; }
+  kapat() { this.kapandi = true; clearTimeout(this.saat); clearTimeout(this.botSaat); this.saatler.forEach(clearTimeout); this.mac.faz = 'bitti'; }
 }
 
 // ------------------------------------------------------------ durum akışı
@@ -276,10 +334,33 @@ function durumGeldi(d) {
     S.sonOlay = 0;
   }
   sohbetGeldi(d, ilk);
+  if (d.mac && d.mac.faz === 'bitti') macKaydet(d);
+  if (!ilk) sesCal(S.d, d);
   if (hamleBende(d) && !hamleBende(S.d)) titret(80);
   if (d.mac && d.mac.faz === 'bitti' && !(S.d && S.d.mac && S.d.mac.faz === 'bitti')) titret([60, 60, 120]);
   S.d = d;
   ciz();
+}
+
+/** Durum değişikliğine göre tek bir ses çal (en önemlisi). */
+function sesCal(once, d) {
+  const m = d.mac, om = once && once.mac;
+  if (!m) return;
+  const ayniMac = om && om.id === m.id;
+  if (m.faz === 'bitti' && !(ayniMac && om.faz === 'bitti')) {
+    Ses.cal(m.sonuc.kazanan === 'ben' ? 'kazandin' : m.sonuc.kazanan === 'rakip' ? 'kaybettin' : 'berabere');
+    return;
+  }
+  if (m.olay && m.olay.tur === 'yanlis' && !(ayniMac && om.olay && om.olay.no === m.olay.no)) { Ses.cal('yanlis'); return; }
+  const N = m.ayar.basamak;
+  if (ayniMac && m.sorularim.length > om.sorularim.length) {
+    const k = m.sorularim[m.sorularim.length - 1];
+    if (k.tahmin) {
+      Ses.cal(k.arti === N ? 'buldu' : k.arti + k.eksi === 0 ? 'sifir' : k.arti >= N - 1 ? 'yakin' : 'cevap');
+      return;
+    }
+  }
+  if (hamleBende(d) && !hamleBende(once)) Ses.cal('sira');
 }
 
 function tabloKaydet() {
@@ -300,7 +381,8 @@ function sohbetGeldi(d, ilk) {
   }
   const yeni = l.filter(x => x.no > S.sohbetSon && !x.ben);
   S.sohbetSon = son;
-  if (S.sohbetAcik) { S.sohbetOkunan = son; return; }
+  if (S.sohbetAcik) { S.sohbetOkunan = son; if (yeni.length) Ses.cal('mesaj'); return; }
+  if (yeni.length) Ses.cal('mesaj');
   if (yeni.length) {
     const x = yeni[yeni.length - 1];
     bildir(`💬 ${x.ad}: ${x.metin}`);
@@ -343,7 +425,7 @@ function olayGoster(o, m) {
 function anaMenu(alt) {
   if (S.kaynak) S.kaynak.kapat();
   S.kaynak = null; S.d = null; S.girdi = ''; S.tabloAnahtar = null; S.sonOlay = 0;
-  S.sohbetAcik = false; S.sohbetSon = null; S.sohbetOkunan = 0;
+  S.sohbetAcik = false; S.sohbetSon = null; S.sohbetOkunan = 0; S.analiz = null;
   S.alt = alt || null;
   ciz();
 }
@@ -360,7 +442,7 @@ async function baglan(kod) {
 function ciz() {
   const d = S.d;
   let html;
-  if (!S.kaynak) html = girisCiz();
+  if (!S.kaynak) html = S.alt === 'gunluk' ? gunlukCiz() : S.alt === 'profil' ? profilCiz() : girisCiz();
   else if (!d) html = `<div class="ortala"><div class="yukleniyor">Bağlanılıyor…</div><button class="dugme ince" data-e="cik">Vazgeç</button></div>`;
   else if (!d.mac) html = lobiCiz(d);
   else if (d.mac.faz === 'gizli') html = gizliCiz(d);
@@ -400,9 +482,12 @@ function girisCiz() {
     </div>`;
   } else if (S.alt === 'bot') {
     alt = `<div class="kart">
-      <label>Bot seviyesi</label>
-      <div class="secenekler genis">${['kolay', 'orta', 'zor'].map(s =>
-        `<button class="sec ${S.botSeviye === s ? 'secili' : ''}" data-e="botSeviye" data-v="${s}">${SEVIYE_AD[s]}</button>`).join('')}</div>
+      <label>Rakibini seç</label>
+      <div class="bot-secim">${['kolay', 'orta', 'zor'].map(s => {
+        const k = BOT_KISILIK[s];
+        return `<button class="bot-kart ${S.botSeviye === s ? 'secili' : ''}" data-e="botSeviye" data-v="${s}">
+          <span class="bot-simge">${k.simge}</span><b>${esc(k.ad)}</b><small>${SEVIYE_AD[s]} · ${esc(k.tanim)}</small></button>`;
+      }).join('')}</div>
       ${ayarFormu(S.botAyar, 'botAyar', false)}
       <button class="dugme ana" data-e="botBasla">Başla</button>
       <button class="dugme ince" data-e="geri">Geri</button>
@@ -413,7 +498,12 @@ function girisCiz() {
       <button class="dugme ana" data-e="odaKur">Oda kur</button>
       <button class="dugme" data-e="katilAc">Kodla katıl</button>
       <button class="dugme" data-e="botAc">Botla oyna</button>
-      <button class="dugme ince" data-e="kurallar">Nasıl oynanır?</button>
+      <button class="dugme gunluk-dugme" data-e="gunlukAc">📅 Günün bulmacası${Istat.gunluk()[bugunTR()] ? ' <small>✓ çözdün</small>' : ''}</button>
+      <div class="ikili">
+        <button class="dugme ince" data-e="profilAc">📊 İstatistik</button>
+        <button class="dugme ince" data-e="kurallar">Nasıl oynanır?</button>
+      </div>
+      <button class="dugme ince" data-e="sesDegistir">${Ses.acik ? '🔊 Ses açık' : '🔇 Ses kapalı'}</button>
     </div>
     ${YEREL_ACILIS && S.agAdres ? `<p class="not kucuk">Aynı Wi-Fi'daki telefonlar şu adresi açsın:<br><b class="ag-adres">${esc(S.agAdres)}</b></p>` : ''}
     ${/android/i.test(navigator.userAgent) && !window.SBAndroid ? '<a class="dugme ince" href="indir/SayiBulmaca.apk" download>Android uygulamasını indir (APK)</a>' : ''}`;
@@ -470,7 +560,7 @@ function lobiCiz(d) {
         <button class="dugme" data-e="paylas">Bağlantı gönder</button>
       </div>
     </div>
-    <div class="kart"><label>Oyuncular</label><ul class="oyuncular">${oyuncular}</ul></div>
+    <div class="kart"><label>Oyuncular</label><ul class="oyuncular">${oyuncular}</ul>${skorHTML(d)}</div>
     <div class="kart"><label>Ayarlar ${o.kurucuBen ? '' : '<small>(kurucu belirler)</small>'}</label>${ayarFormu(o.ayar, 'ayar', !o.kurucuBen)}</div>
     ${basla}
     ${baglantiUyari()}
@@ -490,13 +580,14 @@ function kutular(n, deger, gizle) {
   return s + '</div>';
 }
 
-function tusTakimi(ayar, girdi, tamamEylem, tamamYazi) {
+function tusTakimi(ayar, girdi, tamamEylem, tamamYazi, tablo) {
+  const t = tablo || S.tablo;
   let s = '<div class="tuslar">';
   for (const c of '1234567890') {
     const kullanildi = girdi.indexOf(c) >= 0;
     const basSifir = c === '0' && girdi.length === 0 && !ayar.basSifir;
     const dolu = girdi.length >= ayar.basamak;
-    s += `<button class="tus r${S.tablo[+c]}" data-e="tus" data-v="${c}" ${kullanildi || basSifir || dolu ? 'disabled' : ''}>${c}</button>`;
+    s += `<button class="tus r${t[+c]}" data-e="tus" data-v="${c}" ${kullanildi || basSifir || dolu ? 'disabled' : ''}>${c}</button>`;
   }
   return s + `<button class="tus sil" data-e="sil" ${girdi ? '' : 'disabled'} aria-label="Sil">⌫</button>
     <button class="tus tamam" data-e="${tamamEylem}" ${girdi.length === ayar.basamak ? '' : 'disabled'}>${tamamYazi}</button></div>`;
@@ -511,6 +602,7 @@ function gizliCiz(d) {
         <p class="not">Tuttuğun sayı</p>
         ${kutular(m.ayar.basamak, m.ben.gizli)}
         <div class="yukleniyor">${esc(m.rakip.ad)} sayısını seçiyor…</div>
+        ${skorHTML(d)}
       </div>${baglantiUyari()}</section>`;
   }
   return `<section class="gizli">${ust}
@@ -519,6 +611,7 @@ function gizliCiz(d) {
       <p class="not">${m.ayar.basamak} basamaklı, rakamları birbirinden farklı${m.ayar.basSifir ? '' : ', 0 ile başlamayan'} bir sayı.</p>
       ${kutular(m.ayar.basamak, S.girdi)}
       <p class="not kucuk">Rakip: ${m.rakip.hazir ? 'seçti ✓' : 'seçiyor…'} · İlk soruyu ${m.baslayanBen ? '<b>sen</b>' : esc(m.rakip.ad)} soracak</p>
+      ${skorHTML(d)}
     </div>
     <div class="eylem-alani">
       <button class="dugme ince" data-e="rastgele">Rastgele seç</button>
@@ -556,9 +649,9 @@ function oyunCiz(d) {
   return `<section class="oyun ${bitti ? 'bitti' : ''}">
     <header class="oyun-ust ${d.sohbet ? 'sohbetli' : ''}">
       <button class="geri-ok" data-e="menuAc" aria-label="Menü">⋯</button>
-      <div class="kisi ben"><span class="isim">${esc(m.ben.ad)}</span>${haklar(m.ben.yanlis, a.yanlisHak, a.otoCevap)}</div>
+      <div class="kisi ben"><span class="isim">${esc(m.ben.ad)}${skorRozet(d, true)}</span>${haklar(m.ben.yanlis, a.yanlisHak, a.otoCevap)}</div>
       <div class="sure" id="sure"><span id="sure-sayi"></span><i id="sure-cubuk"></i></div>
-      <div class="kisi rakip"><span class="isim">${esc(m.rakip.ad)}${rakipBagli(d) ? '' : ' <small class="kopuk">(koptu)</small>'}</span>${haklar(m.rakip.yanlis, a.yanlisHak, a.otoCevap)}</div>
+      <div class="kisi rakip"><span class="isim">${skorRozet(d, false)}${esc(m.rakip.ad)}${rakipBagli(d) ? '' : ' <small class="kopuk">(koptu)</small>'}</span>${haklar(m.rakip.yanlis, a.yanlisHak, a.otoCevap)}</div>
       ${d.sohbet ? sohbetDugme(d) : ''}
     </header>
     <div class="durum-serit ${hamleBende(d) ? 'sende' : ''}">${durumYazi}</div>
@@ -579,6 +672,13 @@ function oyunCiz(d) {
     ${bitti ? sonucSerit(m) : eylemAlani(m)}
     ${baglantiUyari()}
   </section>`;
+}
+
+function skorRozet(d, ben) {
+  const l = d.oda.oyuncular || [];
+  if (!l.some(x => x.galibiyet) && !d.oda.berabere) return '';
+  const x = l.find(o => !!o.ben === ben);
+  return x ? ` <b class="skor-rozet" title="Bu odadaki galibiyet">${x.galibiyet || 0}</b> ` : '';
 }
 
 function rakipBagli(d) {
@@ -618,8 +718,9 @@ function eylemAlani(m) {
 }
 
 function sonucSerit(m) {
-  return `<div class="eylem-alani"><div class="ikili">
+  return `<div class="eylem-alani"><div class="ikili uclu">
     <button class="dugme ana" data-e="rovans">Rövanş</button>
+    <button class="dugme" data-e="analizAc" data-v="ben">Analiz</button>
     <button class="dugme" data-e="sonucAc">Sonuç</button>
   </div></div>`;
 }
@@ -644,6 +745,14 @@ function katmanCiz() {
     l2.scrollTop = l2.scrollHeight;
     return;
   }
+  if (S.analiz && m && m.faz === 'bitti') {
+    k.innerHTML = `<div class="perde">${analizHTML(m, S.analiz)}</div>`;
+    return;
+  }
+  if (S.alt === 'gunluk' && !S.kaynak && S.gSiralama && S.g && S.g.gun) {
+    k.innerHTML = `<div class="perde">${siralamaHTML()}</div>`;
+    return;
+  }
   if (S.kurallar) {
     ic = `<div class="modal"><h2>Nasıl oynanır?</h2>
       <ol class="kurallar">
@@ -654,13 +763,16 @@ function katmanCiz() {
         <li>"Cevaplar: Otomatik" ayarında cevabı uygulama hesaplar. "Elle yazılır" seçildiyse cevabı sen yazarsın; yanlış yazarsan uygulama yakalar, hakkın düşer, rakibe doğru cevap gider. Hakların bitince kaybedersin.</li>
         <li>Rakibin sayısını ilk bulan kazanır. "Eşit tur" açıksa, başlayan bulduğunda rakibine son bir hak verilir; o da bulursa berabere.</li>
         <li>Üstteki 0–9 tablosu senin notun: dokununca rakam çizilir (yok), bir daha dokununca yeşil olur (var). Yalnızca <b>kendi sorduğun</b> sayılarda görünür, her yeni oyunda temizlenir.</li>
-        <li>💬 düğmesinden rakibine hazır mesaj, emoji ya da kendi yazdığın mesajı gönderebilirsin.</li>
+        <li>💬 düğmesinden rakibine hazır mesaj, emoji ya da kendi yazdığın mesajı gönderebilirsin. Botlar da cevap verir.</li>
+        <li>Maç bitince <b>Analiz</b>: her sorudan sonra kaç ihtimal kaldığını ve zor botun aynı sayıyı kaç soruda bulacağını gösterir.</li>
+        <li>📅 <b>Günün bulmacası</b>: her gün herkese aynı 4 basamaklı sayı. En az soruda bulan sıralamada birinci olur.</li>
       </ol>
       <button class="dugme ana" data-e="kurallarKapat">Anladım</button></div>`;
   } else if (S.menu && m) {
     const bitti = m.faz === 'bitti';
     ic = `<div class="modal"><h2>Menü</h2>
       <button class="dugme" data-e="kurallar">Nasıl oynanır?</button>
+      <button class="dugme" data-e="sesDegistir">${Ses.acik ? '🔊 Ses açık' : '🔇 Ses kapalı'}</button>
       ${bitti ? '' : '<button class="dugme tehlike" data-e="teslim">Pes et</button>'}
       <button class="dugme" data-e="cik">${S.d.oda.bot ? 'Ana menüye dön' : 'Odadan çık'}</button>
       <button class="dugme ince" data-e="menuKapat">Kapat</button></div>`;
@@ -679,7 +791,9 @@ function katmanCiz() {
         <div><small>Senin sayın</small>${sayiHTML(m.ben.gizli, false)}</div>
         <div><small>${esc(m.rakip.ad)}</small>${m.rakip.gizli ? sayiHTML(m.rakip.gizli, false) : ''}</div>
       </div>
+      ${skorHTML(S.d)}
       <button class="dugme ana" data-e="rovans">Rövanş</button>
+      <button class="dugme" data-e="analizAc" data-v="ben">📈 Maç analizi</button>
       ${kurucu ? '<button class="dugme" data-e="lobi">Ayarları değiştir</button>' : ''}
       ${S.d.oda.bot ? '<button class="dugme" data-e="lobi">Seviye / ayar değiştir</button>' : ''}
       <button class="dugme ince" data-e="sonucKapat">Tahtaya bak</button></div>`;
@@ -711,7 +825,7 @@ setInterval(sureGuncelle, 250);
 
 // ------------------------------------------------------------ eylemler
 async function mesajYolla(metin, olmazsa) {
-  if (!(S.kaynak instanceof Cevrimici)) return;
+  if (!S.kaynak) return;
   try { await S.kaynak.eylem('mesaj', { metin }); }
   catch (h) { bildir(h.message || 'Mesaj gitmedi', 'kotu'); olmazsa && olmazsa(); }
 }
@@ -782,7 +896,7 @@ const EYLEM = {
     else anaMenu(S.kaynak ? 'bot' : null);
   },
   tus(v) {
-    const a = S.d.mac.ayar;
+    const a = girdiAyari();
     if (S.girdi.length < a.basamak && S.girdi.indexOf(v) < 0) { S.girdi += v; ciz(); }
   },
   sil() { S.girdi = S.girdi.slice(0, -1); ciz(); },
@@ -837,13 +951,18 @@ const EYLEM = {
     await gonder('teslim');
     katmanCiz();
   },
-  rovans() { S.sonucKapali = false; gonder('rovans'); },
+  rovans() { S.sonucKapali = false; S.analiz = null; gonder('rovans'); },
   lobi() { gonder('lobi'); },
   sonucKapat() { S.sonucKapali = true; katmanCiz(); },
   sonucAc() { S.sonucKapali = false; katmanCiz(); },
   kurallar() { S.kurallar = true; S.menu = false; katmanCiz(); },
   kurallarKapat() { S.kurallar = false; katmanCiz(); },
+  sesDegistir() { Ses.degistir(); ciz(); },
 };
+Object.assign(EYLEM, PROFIL_EYLEM, ANALIZ_EYLEM, GUNLUK_EYLEM);
+
+/** Rakam yazılan ekranın ayarı: günün bulmacası ya da maç. */
+function girdiAyari() { return !S.kaynak && S.alt === 'gunluk' && S.g && S.g.gun ? gunlukAyar() : S.d.mac.ayar; }
 
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-e]');
@@ -865,6 +984,12 @@ document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') {
     if (e.key === 'Enter' && e.target.id === 'kod') EYLEM.katil();
     if (e.key === 'Enter' && e.target.id === 'sohbet-girdi') EYLEM.mesajGonder();
+    return;
+  }
+  if (!S.kaynak && S.alt === 'gunluk' && S.g && S.g.gun && !gunlukBitti() && !$('#katman').innerHTML) {
+    if (/^\d$/.test(e.key)) { const t = document.querySelector(`.tus[data-v="${e.key}"]`); if (t && !t.disabled) EYLEM.tus(e.key); }
+    else if (e.key === 'Backspace') EYLEM.sil();
+    else if (e.key === 'Enter' && S.girdi.length === S.g.basamak) EYLEM.gSor();
     return;
   }
   const m = S.d && S.d.mac;

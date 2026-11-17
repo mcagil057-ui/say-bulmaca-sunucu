@@ -15,6 +15,16 @@ uygulama yakalar, hakkı düşer, rakibe doğru cevabı uygulama verir.
 - **Sohbet** (💬): hazır mesajlar, emojiler ve serbest yazı.
 - **Eleme tablosu** (0–9): yalnızca kendi sorduğun sayıları boyar, her
   yeni maçta temizlenir.
+- **Maç analizi**: her sorudan sonra kaç ihtimal kaldığı, boşa giden
+  sorular ve zor botun aynı sayıyı kaç soruda bulacağı.
+- **Oda skoru**: rövanşlar boyunca kim kaç kez kazandı.
+- **İstatistiklerim**: maçlar, botlara/arkadaşlara karşı sonuçlar, günün
+  bulmacası serisi. Telefonda saklanır.
+- **Günün bulmacası**: her gün herkese aynı 4 basamaklı sayı, günün
+  sıralaması, emojili sonuç paylaşma. Gizli sayı yalnızca sunucuda.
+- **Botların kişiliği**: Acemi Ali (kolay), Kurnaz Kemal (orta), Usta Ayşe
+  (zor); sohbete yazar, mesaja cevap verir.
+- **Ses efektleri**: menüden açılıp kapanır.
 - **Botla oyna**: kolay / orta / zor. Telefonda çalışır, internet gerekmez.
 - Android (APK), iPhone (Safari'den aç → Paylaş → Ana Ekrana Ekle) ve
   bilgisayar aynı odada birlikte oynar.
@@ -57,5 +67,8 @@ ağın adı → **Özel ağ** seç.
 3. Verilen adresi (ör. `https://sayi-bulmaca.onrender.com`) APK'ya yaz:
    `python araclar/apk.py --adres https://sayi-bulmaca.onrender.com`
 
-Not: ücretsiz sunucu 15 dk boş kalınca uyur, ilk açılış ~1 dk sürebilir.
-Sunucu yeniden başlarsa açık odalar kapanır (oyuncular ana menüye döner).
+Not: ücretsiz sunucu 15 dk boş kalınca uyur. Bunu önlemek için sunucu
+Render'dayken 10 dakikada bir kendi adresini yoklar (`RENDER_EXTERNAL_URL`);
+`/api/saglik` cevabındaki `acilis` zamanı değişmiyorsa sunucu uyumamıştır.
+Sunucu yeniden kurulursa (yeni sürüm yayınlanınca) açık odalar ve günün
+sıralaması sıfırlanır; istatistikler telefonda durduğu için kaybolmaz.
