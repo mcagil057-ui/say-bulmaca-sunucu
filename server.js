@@ -227,7 +227,7 @@ function json(yanit, kod, govde) {
 function govdeOku(istek) {
   return new Promise((coz, red) => {
     let s = '';
-    istek.on('data', p => { s += p; if (s.length > 10000) { red(new Error('çok büyük')); istek.destroy(); } });
+    istek.on('data', p => { s += p; if (s.length > 2000000) { red(new Error('çok büyük')); istek.destroy(); } });
     istek.on('end', () => { try { coz(s ? JSON.parse(s) : {}); } catch (e) { red(e); } });
   });
 }
@@ -292,6 +292,16 @@ const sunucu = http.createServer(async (istek, yanit) => {
       return;
     }
 
+    if (istek.method === 'POST' && yol === '/api/gunluk/devir') {
+      // Her kayıt yeniden doğrulanır; uydurma sonuç sıralamaya giremez.
+      const v = await govdeOku(istek);
+      let alinan = 0;
+      for (const k of Array.isArray(v.kayitlar) ? v.kayitlar.slice(0, 5000) : []) {
+        if (k && typeof k.gun === 'string' && gunlukEkle(k.gun, temizId(k.id), k.ad, k.tahminler, +k.zaman || Date.now())) alinan++;
+      }
+      return json(yanit, 200, { alinan, acilis: ACILIS });
+    }
+
     if (istek.method === 'POST' && yol.startsWith('/api/')) {
       const v = await govdeOku(istek);
       const id = temizId(v.id);
@@ -308,13 +318,7 @@ const sunucu = http.createServer(async (istek, yanit) => {
       if (yol === '/api/gunluk/bitti') {
         const gun = bugun();
         if (v.gun !== gun) return json(yanit, 409, { hata: 'Gün değişti', gun });
-        const liste = Array.isArray(v.tahminler) ? v.tahminler.map(String).slice(0, 200) : [];
-        // Sunucu kendisi denetler: son tahmin gerçekten günün sayısı mı?
-        if (!liste.length || liste[liste.length - 1] !== gunlukGizli(gun) || liste.some(t => Oyun.sayiHatasi(t, GUNLUK_AYAR))) {
-          return json(yanit, 400, { hata: 'Sonuç doğrulanamadı' });
-        }
-        const sonuclar = gunlukSonuclar(gun);
-        if (!sonuclar.has(id)) sonuclar.set(id, { ad: temizAd(v.ad), soru: liste.length, zaman: Date.now() });
+        if (!gunlukEkle(gun, id, v.ad, v.tahminler, Date.now())) return json(yanit, 400, { hata: 'Sonuç doğrulanamadı' });
         return json(yanit, 200, gunlukDurum(id));
       }
 
@@ -355,12 +359,19 @@ const sunucu = http.createServer(async (istek, yanit) => {
 // ------------------------------------------------------------------ günün bulmacası
 /*
  * Herkese aynı gizli sayı. Sayı tarihten ve gizli bir tuzdan hesaplanır:
- * sunucu yeniden başlasa da aynı kalır, telefona hiç gönderilmez. Sıralama
- * bellekte durur (sunucu yeniden kurulunca o günün sıralaması sıfırlanır).
+ * sunucu yeniden başlasa da aynı kalır, telefona hiç gönderilmez.
+ *
+ * Sıralama bellekte durur; ücretsiz Render'da kalıcı disk yok. Kaybolmasın
+ * diye iki yol var:
+ *  1. Yeni sürüm yayınlanırken Render önce yeni sunucuyu açar, trafiği ona
+ *     verir, sonra eskisine SIGTERM gönderir. Eski sunucu kapanmadan bütün
+ *     kayıtları (soruları dahil) genel adrese, yani YENİ sunucuya gönderir.
+ *  2. Telefon uygulama açılınca bugünkü sonucu sıralamada yoksa yeniden
+ *     gönderir (sorular telefonda saklı, sunucu yeniden doğrular).
  */
 const GUNLUK_AYAR = Oyun.ayarDuzelt({ basamak: 4 });
 const GUNLUK_TUZ = process.env.GUNLUK_TUZ || 'sayi-bulmaca-gunun-sayisi';
-const gunlukKayit = new Map();   // gun -> Map(id -> {ad, soru, zaman})
+const gunlukKayit = new Map();   // gun -> Map(id -> {ad, soru, zaman, tahminler})
 
 /** Türkiye saatine göre bugünün tarihi: 2026-11-17 */
 function bugun() { return new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 10); }
@@ -378,6 +389,47 @@ function gunlukSonuclar(gun) {
   }
   return gunlukKayit.get(gun);
 }
+
+/** Doğrulanmış bir çözümü sıralamaya ekle. Geçersizse false. */
+function gunlukEkle(gun, id, ad, tahminler, zaman) {
+  if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(gun) || gun > bugun()) return false;
+  const liste = Array.isArray(tahminler) ? tahminler.map(String).slice(0, 200) : [];
+  // Sunucu kendisi denetler: son tahmin gerçekten günün sayısı mı?
+  if (!liste.length || liste[liste.length - 1] !== gunlukGizli(gun) || liste.some(t => Oyun.sayiHatasi(t, GUNLUK_AYAR))) return false;
+  const sonuclar = gunlukSonuclar(gun);
+  const eski = sonuclar.get(id);
+  if (!eski) sonuclar.set(id, { ad: temizAd(ad), soru: liste.length, zaman, tahminler: liste });
+  else if (zaman < eski.zaman) eski.zaman = zaman; // devirde ilk çözüm zamanı korunur
+  return true;
+}
+
+/** Kapanırken sıralamayı genel adrese (yeni sürüme) gönder. */
+async function siralamayiDevret() {
+  const taban = (process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
+  const kayitlar = [];
+  for (const [gun, m] of gunlukKayit) for (const [id, x] of m) kayitlar.push({ gun, id, ad: x.ad, zaman: x.zaman, tahminler: x.tahminler });
+  if (!taban || !kayitlar.length || typeof fetch !== 'function') return;
+  // Trafik yeni sunucuya geçmemişse istek kendimize gelir: o zaman bekleyip yeniden dene.
+  for (let deneme = 0; deneme < 8; deneme++) {
+    try {
+      const r = await fetch(taban + '/api/gunluk/devir', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kayitlar }),
+        signal: AbortSignal.timeout(5000),
+      }).then(x => x.json());
+      if (r.acilis !== ACILIS) { console.log(`Sıralama yeni sürüme devredildi: ${r.alinan}/${kayitlar.length}`); return; }
+    } catch (e) { /* yeni sunucu henüz hazır değil */ }
+    await new Promise(c => setTimeout(c, 2500));
+  }
+  console.log('Sıralama devredilemedi');
+}
+
+let kapaniyor = false;
+process.on('SIGTERM', async () => {
+  if (kapaniyor) return;
+  kapaniyor = true;
+  await siralamayiDevret();
+  process.exit(0);
+});
 
 function gunlukDurum(id) {
   const gun = bugun();

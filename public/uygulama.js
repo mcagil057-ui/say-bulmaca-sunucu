@@ -1020,5 +1020,6 @@ document.addEventListener('keydown', e => {
   }
   ciz();
   acikOdalariYenile();
+  gunlukSonucuKoru(); // sunucu yeniden kurulduysa bugünkü sonucum sıralamaya geri dönsün
   agAdresiOgren().then(() => { if (!S.kaynak) ciz(); });
 })();

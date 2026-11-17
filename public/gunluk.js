@@ -50,6 +50,21 @@ async function gunlukGonder() {
   if (S.alt === 'gunluk') ciz();
 }
 
+/**
+ * Uygulama açılınca: bugünü çözdüysem ama sunucudaki sıralamada yoksam
+ * (sunucu yeniden kurulmuş olabilir) sonucumu sessizce yeniden gönder.
+ */
+async function gunlukSonucuKoru() {
+  const y = jsonAl('sb_gunluk', null);
+  const son = y && Array.isArray(y.tahminler) && y.tahminler[y.tahminler.length - 1];
+  if (!son || y.gun !== bugunTR() || son.arti !== String(son.tahmin).length) return;
+  try {
+    const r = await fetch(`${API}/api/gunluk?id=${encodeURIComponent(ID)}`, { cache: 'no-store' }).then(x => x.json());
+    if (r.gun !== y.gun || r.benim) return;
+    await istek('/api/gunluk/bitti', { gun: y.gun, ad: adim(), tahminler: y.tahminler.map(k => k.tahmin) });
+  } catch (e) { /* bir dahaki açılışta */ }
+}
+
 function gunlukCiz() {
   const g = S.g;
   const ust = `<header class="ust-cubuk"><button class="geri-ok" data-e="geri" aria-label="Geri">‹</button>
