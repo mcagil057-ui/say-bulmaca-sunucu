@@ -1060,7 +1060,7 @@ function katmanCiz() {
         <li>Üstteki 0–9 tablosu senin notun: dokununca rakam çizilir (yok), bir daha dokununca yeşil olur (var). Yalnızca <b>kendi sorduğun</b> sayılarda görünür, her yeni oyunda temizlenir.</li>
         <li>💬 düğmesinden rakibine hazır mesaj, emoji ya da kendi yazdığın mesajı gönderebilirsin. Botlar da cevap verir.</li>
         <li>Maç bitince <b>Analiz</b>: her sorudan sonra kaç ihtimal kaldığını ve zor botun aynı sayıyı kaç soruda bulacağını gösterir.</li>
-        <li>📅 <b>Günün bulmacası</b>: her gün herkese aynı 4 basamaklı sayı. En az soruda bulan sıralamada birinci olur.</li>
+        <li>📅 <b>Günün bulmacası</b>: her gün yeni bir 4 basamaklı sayı${new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 10) >= '2026-11-19' ? ', herkesin sayısı kendine özel' : ', herkese aynı'}. En az soruda bulan sıralamada birinci olur.</li>
       </ol>
       <button class="dugme ana" data-e="kurallarKapat">Anladım</button></div>`;
   } else if (S.menu && m) {

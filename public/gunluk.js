@@ -1,7 +1,8 @@
 /*
  * Sayı Bulmaca — günün bulmacası.
  *
- * Her gün herkese aynı 4 basamaklı sayı. Gizli sayı yalnızca sunucuda durur;
+ * Her gün yeni bir 4 basamaklı sayı; 19.11.2026'dan beri her hesabın sayısı
+ * kendine özel (iki tarayıcıyla oynamak işe yaramasın). Gizli sayı yalnızca sunucuda durur;
  * telefon her soruyu sunucuya sorar. İlerleme HESABA bağlı, veritabanında
  * durur: aynı hesapla hangi cihazdan girersen gir kaldığın yerden devam
  * edersin, bir hesap günde bir kez oynar (bkz. gunluk-sunucu.js).
@@ -62,7 +63,7 @@ function gunlukCiz() {
     : `<div class="eylem-alani">${kutular(a.basamak, S.girdi)}${tusTakimi(a, S.girdi, 'gSor', 'Sor', g.tablo)}</div>`;
 
   return `<section class="oyun gunluk">${ust}
-    <div class="durum-serit">${gunYazi(g.gun)} · ${a.basamak} basamak · herkese aynı</div>
+    <div class="durum-serit">${gunYazi(g.gun)} · ${a.basamak} basamak · ${g.ortak === false ? 'sayın sana özel' : 'herkese aynı'}</div>
     ${tablo}
     <div class="defter tek"><div class="sutun">
       <div class="sutun-ad">Sorularım ${g.tahminler.length ? `(${g.tahminler.length})` : ''}</div>

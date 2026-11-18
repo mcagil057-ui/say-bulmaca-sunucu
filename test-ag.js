@@ -23,6 +23,23 @@ const esit = (a, b, ad) => { const ok = JSON.stringify(a) === JSON.stringify(b);
   await d.agTemizle(G.agSinirGun('2026-11-18'));
   esit([(await d.agKayitlari('2026-11-16')).length, (await d.agKayitlari('2026-11-17')).length], [0, 1], 'iki günden eski izler silindi, dün kaldı');
 
-  console.log(hata ? `\n${hata} HATA` : '\nAğ izi denetimleri geçti');
+  // Her hesaba ayrı sayı: 19.11.2026'dan itibaren; öncesi herkese aynı (bugüne dokunulmadı)
+  esit(G.gizli('2026-11-18', 1) === G.gizli('2026-11-18', 2), true, '18 Kasım: herkese aynı sayı (değişmedi)');
+  const yeni = new Set(Array.from({ length: 20 }, (_, i) => G.gizli('2026-11-19', i + 1)));
+  esit(yeni.size > 15, true, '19 Kasım: hesapların sayıları farklı');
+  esit(G.gizli('2026-11-19', 7), G.gizli('2026-11-19', 7), 'aynı hesap gün içinde hep aynı sayı');
+  const ali = await d.hesapOlustur('t:ali', 'Ali', 1), ayse = await d.hesapOlustur('t:ayse', 'Ayşe', 1);
+  const GO = G.gunlukModulu(d);
+  esit([(await GO.durum('2026-11-18', ali)).ortak, (await GO.durum('2026-11-19', ali)).ortak], [true, false], 'ekrana herkese aynı / sana özel bilgisi');
+  const aliSayi = G.gizli('2026-11-19', ali.id);
+  esit(!!(await GO.sor('2026-11-19', ali, aliSayi)).benim, true, 'Ali kendi sayısını bulunca çözülüyor');
+  if (aliSayi !== G.gizli('2026-11-19', ayse.id)) {
+    const r = await GO.sor('2026-11-19', ayse, aliSayi);
+    esit([r.benim, r.siralama.map(x => x.ad)], [null, ['Ali']], 'Ali\'nin sayısı Ayşe\'yi çözdürmüyor (ikinci tarayıcı hilesi işe yaramaz)');
+  }
+  const eski = G.gizli('2026-11-18', 0);
+  esit([!!(await GO.sor('2026-11-18', ali, eski)).benim, !!(await GO.sor('2026-11-18', ayse, eski)).benim], [true, true], '18 Kasım: aynı sayı herkesi çözdürüyor');
+
+  console.log(hata ? `\n${hata} HATA` : '\nAğ izi ve günlük sayı denetimleri geçti');
   process.exit(hata ? 1 : 0);
 })();
