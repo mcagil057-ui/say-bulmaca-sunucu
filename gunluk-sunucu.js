@@ -23,6 +23,18 @@ const TUZ = process.env.GUNLUK_TUZ
 /** Türkiye saatine göre bugünün tarihi: 2026-11-17 */
 function bugun() { return new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 10); }
 
+/*
+ * Ağ izi: aynı ağdan kaç hesabın bulmacayı oynadığını görmek için (iki
+ * tarayıcıyla oynama). IP'nin kendisi saklanmaz; gizli anahtar + gün ile
+ * karıştırılmış kısa bir iz saklanır. Anahtar her gün değiştiği için iz
+ * yalnızca o günün kayıtları arasında karşılaştırılabilir, kişi günler
+ * boyunca izlenemez. Kayıtlar 2 gün sonra silinir.
+ */
+const AG_TUZ = crypto.createHash('sha256').update('ag-izi|' + TUZ).digest('hex');
+function agIzi(gun, ip) { return crypto.createHmac('sha256', AG_TUZ).update(gun + '|' + ip).digest('hex').slice(0, 12); }
+/** Saklanacak en eski gün (dün). */
+function agSinirGun(gun) { return new Date(Date.parse(gun + 'T00:00:00Z') - 24 * 3600 * 1000).toISOString().slice(0, 10); }
+
 function gizli(gun) {
   const h = crypto.createHmac('sha256', TUZ).update(gun).digest();
   const tum = Oyun.tumSayilar(AYAR);
@@ -65,4 +77,4 @@ function gunlukModulu(depo, rozetBul, cozuldu) {
   return { durum, sor };
 }
 
-module.exports = { AYAR, bugun, gizli, gunlukModulu };
+module.exports = { AYAR, bugun, gizli, gunlukModulu, agIzi, agSinirGun };

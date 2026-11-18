@@ -29,7 +29,7 @@ const os = require('os');
 const Oyun = require('./public/oyun.js');
 const Gunluk = require('./gunluk-sunucu.js');
 const { depoAc } = require('./depo.js');
-const { hesapModulu, yereldenMi, postaDurumu } = require('./hesap.js');
+const { hesapModulu, yereldenMi, postaDurumu, istemciIp } = require('./hesap.js');
 const { meydanModulu } = require('./meydan-sunucu.js');
 const Rozet = require('./public/rozet.js');
 let Hesap, GunlukOyun, Meydan, DEPO_TURU, DEPO; // depo açılınca kurulur (aşağıda)
@@ -561,6 +561,8 @@ const sunucu = http.createServer(async (istek, yanit) => {
       if (yol === '/api/gunluk/sor') {
         const gun = Gunluk.bugun();
         if (v.gun !== gun) return json(yanit, 409, { hata: 'Gün değişti, yeni bulmaca başladı', gun, gunDegisti: true });
+        // Ağ izi (hile denetimi için; kayıt düşerse oyun yine sürer)
+        await DEPO.agKaydet(gun, hesap.id, Gunluk.agIzi(gun, istemciIp(istek)), Date.now()).catch(e => console.error('Ağ izi yazılamadı', e.message));
         const r = await GunlukOyun.sor(gun, hesap, v.tahmin);
         return json(yanit, r.hata ? r.kod : 200, r);
       }
@@ -655,6 +657,10 @@ if (process.env.RENDER_EXTERNAL_URL && typeof fetch === 'function') {
   setInterval(() => { fetch(adres).catch(() => { /* bir sonrakinde */ }); }, 10 * 60 * 1000).unref();
 }
 
+// Günlük ağ izlerini 2 günden sonra sil (açılışta ve 6 saatte bir)
+function agTemizle() { if (DEPO) DEPO.agTemizle(Gunluk.agSinirGun(Gunluk.bugun())).catch(e => console.error('Ağ izi silinemedi', e.message)); }
+setInterval(agTemizle, 6 * 3600 * 1000).unref();
+
 // Terk edilmiş odaları temizle
 setInterval(() => {
   const sinir = Date.now() - ODA_OMRU;
@@ -669,6 +675,7 @@ depoAc(process.env.DATABASE_URL).then(depo => {
   DEPO_TURU = depo.tur;
   DEPO = depo;
   Meydan = meydanModulu(depo);
+  agTemizle();
   Hesap = hesapModulu(depo);
   GunlukOyun = Gunluk.gunlukModulu(depo, rozetBul, istatGunluk);
   if (depo.tur === 'bellek') console.log('UYARI: DATABASE_URL yok, hesaplar bellekte (sunucu kapanınca silinir).');

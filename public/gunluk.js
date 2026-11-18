@@ -79,6 +79,7 @@ function siralamaHTML() {
     <p>${gunYazi(g.gun)} · ${g.toplam} kişi çözdü</p>
     <ol class="sir-liste">${l || '<li class="bos">Henüz çözen yok. İlk sen ol!</li>'}</ol>
     ${gunlukBitti() ? '' : '<p class="not kucuk">Sayıyı bulunca adın burada çıkar.</p>'}
+    <p class="not kucuk">Hileye karşı ağının gizli bir izi 2 gün saklanır (IP adresinin kendisi değil).</p>
     <button class="dugme ana" data-e="gSiralamaKapat">Kapat</button></div>`;
 }
 

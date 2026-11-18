@@ -41,6 +41,13 @@ CREATE TABLE IF NOT EXISTS gunluk (
   cozuldu BIGINT,
   PRIMARY KEY (gun, hesap_id)
 );
+CREATE TABLE IF NOT EXISTS gunluk_ag (
+  gun TEXT NOT NULL,
+  hesap_id INTEGER NOT NULL,
+  ag TEXT NOT NULL,
+  ilk BIGINT NOT NULL,
+  PRIMARY KEY (gun, hesap_id, ag)
+);
 CREATE TABLE IF NOT EXISTS istatistik (
   hesap_id INTEGER PRIMARY KEY,
   mac INTEGER NOT NULL,
@@ -173,6 +180,16 @@ async function depoAc(adres) {
                ON CONFLICT (gun, hesap_id) DO UPDATE SET tahminler = EXCLUDED.tahminler, cozuldu = EXCLUDED.cozuldu`,
         [gun, hesapId, JSON.stringify(tahminler), cozuldu]);
     },
+    // ---- günlük bulmacada ağ izi (IP'nin kendisi değil; 2 gün saklanır)
+    async agKaydet(gun, hesapId, ag, zaman) {
+      await q(`INSERT INTO gunluk_ag (gun, hesap_id, ag, ilk) VALUES ($1, $2, $3, $4)
+               ON CONFLICT (gun, hesap_id, ag) DO NOTHING`, [gun, hesapId, ag, zaman]);
+    },
+    async agTemizle(enEskiGun) { await q('DELETE FROM gunluk_ag WHERE gun < $1', [enEskiGun]); },
+    async agKayitlari(gun) {
+      return (await q('SELECT * FROM gunluk_ag WHERE gun = $1', [gun])).map(r => ({ hesapId: Number(r.hesap_id), ag: r.ag, ilk: Number(r.ilk) }));
+    },
+
     // ---- istatistik (rozetler için)
     async istatAl(hesapId) {
       const r = (await q('SELECT * FROM istatistik WHERE hesap_id = $1', [hesapId]))[0];
